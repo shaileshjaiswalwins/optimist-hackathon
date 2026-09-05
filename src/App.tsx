@@ -28,6 +28,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [joinNextRace, setJoinNextRace] = useState(false);
+  const [sceneReady, setSceneReady] = useState(false);
   const inputSeq = useRef(0);
   const driving = useRef({ steering: 0, throttle: 0, boost: false });
 
@@ -58,6 +59,10 @@ function App() {
     () => currentMatch ? obstacles.filter(item => item.matchId === currentMatch.matchId) : [],
     [obstacles, currentMatch]
   );
+
+  useEffect(() => {
+    setSceneReady(false);
+  }, [currentMatch?.matchId, currentMatch?.state]);
 
   async function handleJoin(event: FormEvent) {
     event.preventDefault();
@@ -144,7 +149,8 @@ function App() {
     });
     return (
       <main className="game-page">
-        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} />
+        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} onReady={() => setSceneReady(true)} />
+        {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
           <div><small>{Math.round(myPosition?.speed ?? 0)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>
           <div className="hud-title">GHAR JALDI PAHUNCHO</div>

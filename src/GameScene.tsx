@@ -39,6 +39,7 @@ type Props = {
   positions: readonly Position[];
   obstacles: readonly Obstacle[];
   input: { current: { steering: number; throttle: number; boost: boolean } };
+  onReady: () => void;
 };
 
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0) {
@@ -424,15 +425,17 @@ function createSidewalkLife(index: number, side: number) {
   return group;
 }
 
-export function GameScene({ myPlayerId, profiles, positions, obstacles, input }: Props) {
+export function GameScene({ myPlayerId, profiles, positions, obstacles, input, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
   const positionsRef = useRef(positions);
   const obstaclesRef = useRef(obstacles);
+  const onReadyRef = useRef(onReady);
 
   profilesRef.current = profiles;
   positionsRef.current = positions;
   obstaclesRef.current = obstacles;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -624,6 +627,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       let predictedX: number | undefined;
       let predictedDistance: number | undefined;
       let predictedSpeed = 0;
+      let firstFrameRendered = false;
       const render = (now: number) => {
         if (disposed || !renderer) return;
         const dt = Math.min((now - previous) / 1000, 0.05);
@@ -743,6 +747,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
 
         world.step();
         renderer.render(scene, camera);
+        if (!firstFrameRendered) {
+          firstFrameRendered = true;
+          onReadyRef.current();
+        }
         animationFrame = requestAnimationFrame(render);
       };
       animationFrame = requestAnimationFrame(render);
