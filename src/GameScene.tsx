@@ -596,7 +596,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
             ? { sky: 0x80c5e8, fog: 0xa9d2e1, sun: 0xfff3c7, sunPower: 3.8, hemi: 2.4, exposure: 1.08, shadow: 1.2, sunY: 24 }
             : phase === 'evening'
               ? { sky: 0xe9a86f, fog: 0xe9b984, sun: 0xffc26e, sunPower: 3.3, hemi: 1.9, exposure: 1, shadow: 3.8, sunY: 18 }
-              : { sky: 0x071228, fog: 0x101c34, sun: 0x8398ca, sunPower: 0.18, hemi: 0.34, exposure: 0.76, shadow: 0.6, sunY: 5 };
+              // Night must stay readable on an uncalibrated phone screen.
+              // The moon fill remains cool while the pooled streetlights add
+              // the warm pockets of light along the road.
+              : { sky: 0x10234a, fog: 0x1d3357, sun: 0xaec9ff, sunPower: 1.05, hemi: 1.18, exposure: 1.02, shadow: 1.1, sunY: 9 };
         skyColor.setHex(rainy ? settings.sky * 0.67 : settings.sky);
         (scene.fog as THREE.Fog).color.setHex(rainy ? settings.fog * 0.6 : settings.fog);
         (scene.fog as THREE.Fog).near = phase === 'night' ? 28 : rainy ? 36 : 52;
@@ -613,7 +616,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         roadMaterial.metalness = rainy ? 0.28 : 0.02;
         rain.visible = rainy;
         for (const [index, light] of streetLights.entries()) {
-          light.intensity = phase === 'night' ? (index % 2 ? 4.4 : 3.2) : rainy ? 0.45 : 0;
+          light.intensity = phase === 'night' ? (index % 2 ? 92 : 74) : rainy ? 8 : 0;
         }
         renderer!.toneMappingExposure = settings.exposure;
       };
