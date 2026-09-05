@@ -30,6 +30,7 @@ function App() {
   const [error, setError] = useState('');
   const [joinNextRace, setJoinNextRace] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
+  const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('medium');
   const inputSeq = useRef(0);
   const driving = useRef({ steering: 0, throttle: 0, boost: false });
 
@@ -150,7 +151,7 @@ function App() {
     });
     return (
       <main className="game-page">
-        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} onReady={() => setSceneReady(true)} />
+        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} onReady={() => setSceneReady(true)} />
         <VehicleDebugPanel />
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
@@ -168,6 +169,11 @@ function App() {
             </div>
           ))}
         </aside>
+        <label className="quality-setting hud">Quality
+          <select value={quality} onChange={event => setQuality(event.target.value as 'low' | 'medium' | 'high')} aria-label="Visual quality">
+            <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+          </select>
+        </label>
         {myVitals?.eliminated && <div className="game-message"><h2>You’re out!</h2><p>Watch the race finish live.</p></div>}
         <div className="controls hud">
           <div className="steering-controls">

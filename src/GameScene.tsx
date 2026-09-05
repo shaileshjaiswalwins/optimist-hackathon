@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import type { DynamicRayCastVehicleController, RigidBody } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { vehicleTuning } from './vehiclePhysics';
 
 const TRAFFIC_ASSETS = [
@@ -40,8 +43,22 @@ type Props = {
   positions: readonly Position[];
   obstacles: readonly Obstacle[];
   input: { current: { steering: number; throttle: number; boost: boolean } };
+  quality: 'low' | 'medium' | 'high';
   onReady: () => void;
 };
+
+type Weather = 'clear' | 'rain';
+
+function initialWeather(): Weather {
+  return new URLSearchParams(window.location.search).get('weather') === 'rain' ? 'rain' : 'clear';
+}
+
+function timeOfDay(hour: number) {
+  if (hour >= 6 && hour < 9) return 'morning' as const;
+  if (hour >= 9 && hour < 17) return 'noon' as const;
+  if (hour >= 17 && hour < 19) return 'evening' as const;
+  return 'night' as const;
+}
 
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
@@ -426,7 +443,7 @@ function createSidewalkLife(index: number, side: number) {
   return group;
 }
 
-export function GameScene({ myPlayerId, profiles, positions, obstacles, input, onReady }: Props) {
+export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
   const positionsRef = useRef(positions);
@@ -451,22 +468,36 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       if (disposed || !mount) return;
 
       const scene = new THREE.Scene();
-      // Golden-hour colour grading provides a warmer, more memorable city
-      // without an expensive sky shader (important for event phones).
-      scene.background = new THREE.Color(0xe9a86f);
+      const skyColor = new THREE.Color(0xe9a86f);
+      scene.background = skyColor;
       scene.fog = new THREE.Fog(0xe9b984, 52, 145);
       const camera = new THREE.PerspectiveCamera(58, mount.clientWidth / mount.clientHeight, 0.1, 180);
       camera.position.set(0, 7.5, 12);
       camera.lookAt(0, 0, -20);
 
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1;
+      // Three.js r185 uses physically correct lighting by default.
+      renderer.shadowMap.enabled = quality !== 'low';
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.setPixelRatio(Math.min(devicePixelRatio, mount.clientWidth < 760 ? 1.25 : 1.5));
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       mount.appendChild(renderer.domElement);
 
-      scene.add(new THREE.HemisphereLight(0xffd8b0, 0x3d5b35, 2.7));
+      const hemi = new THREE.HemisphereLight(0xffd8b0, 0x3d5b35, 1.9);
+      scene.add(hemi);
       const sun = new THREE.DirectionalLight(0xffc26e, 3.3);
       sun.position.set(-8, 18, 10);
+      sun.castShadow = quality !== 'low';
+      sun.shadow.mapSize.set(quality === 'high' ? 1024 : 512, quality === 'high' ? 1024 : 512);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 72;
+      sun.shadow.camera.left = -18;
+      sun.shadow.camera.right = 18;
+      sun.shadow.camera.top = 18;
+      sun.shadow.camera.bottom = -18;
       scene.add(sun);
       const sunDisk = new THREE.Mesh(
         new THREE.CircleGeometry(8, 28),
@@ -475,6 +506,22 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       sunDisk.position.set(-27, 23, -125);
       sunDisk.lookAt(camera.position);
       scene.add(sunDisk);
+
+      // High quality adds a deliberately restrained bloom pass. Medium keeps
+      // the lighting and soft shadows but avoids the extra full-screen pass.
+      let composer: EffectComposer | undefined;
+      if (quality === 'high') {
+        composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(new THREE.Vector2(mount.clientWidth, mount.clientHeight), 0.22, 0.38, 0.9));
+      }
+
+      // Kept as a hook for a branded LUT asset later. The ACES curve provides
+      // a good neutral grade today without shipping a large 3D texture.
+      const setColourGradeLut = (lut?: THREE.Texture | THREE.Data3DTexture) => {
+        scene.userData.colourGradeLut = lut;
+      };
+      setColourGradeLut();
 
       const assetLoader = new GLTFLoader();
       const trafficTemplates = await Promise.all(TRAFFIC_ASSETS.map(async (url, index) => {
@@ -488,13 +535,89 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       }));
       if (disposed) return;
 
+      const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x343b3e, roughness: 0.76, metalness: 0.02 });
       const road = new THREE.Mesh(
         new THREE.PlaneGeometry(13, 260),
-        new THREE.MeshLambertMaterial({ color: 0x343b3e })
+        roadMaterial
       );
       road.rotation.x = -Math.PI / 2;
       road.position.z = -95;
+      road.receiveShadow = quality !== 'low';
       scene.add(road);
+
+      // A small pooled lighting rig gives night its mixed sodium/LED character
+      // without placing a light on every street prop.
+      const streetLights: THREE.PointLight[] = [];
+      for (let index = 0; index < 10; index += 1) {
+        const light = new THREE.PointLight(index % 2 ? 0xff9b48 : 0xd7ecff, 0, 11, 2);
+        light.position.set(index % 2 ? -7.7 : 7.7, 4.1, 8 - index * 18);
+        scene.add(light);
+        streetLights.push(light);
+      }
+
+      const rainDrops = 220;
+      const rainPositions = new Float32Array(rainDrops * 6);
+      for (let index = 0; index < rainDrops; index += 1) {
+        const offset = index * 6;
+        const x = ((index * 37) % 150) / 10 - 7.5;
+        const y = ((index * 47) % 100) / 10;
+        const z = -((index * 83) % 160);
+        rainPositions[offset] = rainPositions[offset + 3] = x;
+        rainPositions[offset + 1] = y;
+        rainPositions[offset + 4] = y + 0.3;
+        rainPositions[offset + 2] = rainPositions[offset + 5] = z;
+      }
+      const rainGeometry = new THREE.BufferGeometry();
+      rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+      const rain = new THREE.LineSegments(rainGeometry, new THREE.LineBasicMaterial({ color: 0xc9e8ff, transparent: true, opacity: 0.58, depthWrite: false }));
+      rain.visible = false;
+      scene.add(rain);
+      let weather = initialWeather();
+      let lastEnvironmentMinute = -1;
+      let lastEnvironmentWeather: Weather | undefined;
+      // This is the scene-side weather-state hook. Event integrations can set
+      // `detail.weather` to `rain` without coupling visuals to race logic.
+      const onWeatherChange = (event: Event) => {
+        const next = (event as CustomEvent<{ weather?: Weather }>).detail?.weather;
+        if (next === 'clear' || next === 'rain') weather = next;
+      };
+      window.addEventListener('jaldi-weather', onWeatherChange as EventListener);
+      const applyEnvironment = () => {
+        const now = new Date();
+        const minute = now.getHours() * 60 + now.getMinutes();
+        if (minute === lastEnvironmentMinute && weather === lastEnvironmentWeather) return;
+        lastEnvironmentMinute = minute;
+        lastEnvironmentWeather = weather;
+        const phase = timeOfDay(now.getHours() + now.getMinutes() / 60);
+        const rainy = weather === 'rain';
+        const settings = phase === 'morning'
+          ? { sky: 0x9fc5dd, fog: 0xa9c7d7, sun: 0xc4dbef, sunPower: 2.2, hemi: 1.55, exposure: 0.96, shadow: 4.5, sunY: 12 }
+          : phase === 'noon'
+            ? { sky: 0x80c5e8, fog: 0xa9d2e1, sun: 0xfff3c7, sunPower: 3.8, hemi: 2.4, exposure: 1.08, shadow: 1.2, sunY: 24 }
+            : phase === 'evening'
+              ? { sky: 0xe9a86f, fog: 0xe9b984, sun: 0xffc26e, sunPower: 3.3, hemi: 1.9, exposure: 1, shadow: 3.8, sunY: 18 }
+              : { sky: 0x071228, fog: 0x101c34, sun: 0x8398ca, sunPower: 0.18, hemi: 0.34, exposure: 0.76, shadow: 0.6, sunY: 5 };
+        skyColor.setHex(rainy ? settings.sky * 0.67 : settings.sky);
+        (scene.fog as THREE.Fog).color.setHex(rainy ? settings.fog * 0.6 : settings.fog);
+        (scene.fog as THREE.Fog).near = phase === 'night' ? 28 : rainy ? 36 : 52;
+        (scene.fog as THREE.Fog).far = phase === 'night' ? 110 : rainy ? 118 : 145;
+        sun.color.setHex(settings.sun);
+        sun.intensity = settings.sunPower * (rainy ? 0.55 : 1);
+        sun.position.y = settings.sunY;
+        sun.shadow.radius = settings.shadow;
+        hemi.intensity = settings.hemi * (rainy ? 0.68 : 1);
+        hemi.color.setHex(phase === 'night' ? 0x6b8ec7 : settings.sky);
+        sunDisk.visible = phase !== 'night';
+        roadMaterial.color.setHex(rainy ? 0x202a30 : 0x343b3e);
+        roadMaterial.roughness = rainy ? 0.24 : 0.76;
+        roadMaterial.metalness = rainy ? 0.28 : 0.02;
+        rain.visible = rainy;
+        for (const [index, light] of streetLights.entries()) {
+          light.intensity = phase === 'night' ? (index % 2 ? 4.4 : 3.2) : rainy ? 0.45 : 0;
+        }
+        renderer!.toneMappingExposure = settings.exposure;
+      };
+      applyEnvironment();
 
       const shoulderMaterial = new THREE.MeshLambertMaterial({ color: 0x69714d });
       const curbMaterial = new THREE.MeshLambertMaterial({ color: 0xe3d3a5 });
@@ -693,6 +816,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         const key = profile.playerId.toString();
         if (carMeshes.has(key)) return;
         const group = createPlayerVehicle(profile);
+        if (quality !== 'low') group.traverse(child => {
+          if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+        });
         group.add(racerNameplate(profile.name, profile.isBot));
         group.position.set(initialX, 0, initialZ);
         scene.add(group);
@@ -707,6 +833,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         if (obstacleMeshes.has(key)) return;
         const variant = Number(obstacle.obstacleId % BigInt(trafficTemplates.length));
         const mesh = trafficTemplates[variant]?.clone(true) ?? createTrafficVehicle(variant % 3);
+        if (quality !== 'low') mesh.traverse(child => {
+          if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+        });
         mesh.position.set(obstacle.x, 0, initialZ);
         scene.add(mesh);
         const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
@@ -757,6 +886,19 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
           predictedDistance = authoritativeMe?.distance ?? 0;
         }
         const myDistance = predictedDistance;
+        applyEnvironment();
+        if (rain.visible) {
+          // Typed-array rain is camera-relative and reused every frame: no
+          // particle objects, no garbage collection spikes on phones.
+          for (let index = 0; index < rainPositions.length; index += 6) {
+            rainPositions[index + 1] -= dt * 16;
+            if (rainPositions[index + 1] < 0) rainPositions[index + 1] += 10;
+            rainPositions[index + 4] = rainPositions[index + 1] + 0.3;
+          }
+          rainGeometry.attributes.position.needsUpdate = true;
+          rain.position.x = camera.position.x;
+          rain.position.z = camera.position.z - 55;
+        }
 
         for (const profile of profilesRef.current) {
           const position = positionsRef.current.find(row => row.playerId === profile.playerId);
@@ -858,7 +1000,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         }
         camera.lookAt(myX * 0.12, 0.5, -20);
 
-        renderer.render(scene, camera);
+        if (composer) composer.render();
+        else renderer.render(scene, camera);
         if (!firstFrameRendered) {
           firstFrameRendered = true;
           onReadyRef.current();
@@ -877,12 +1020,16 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         camera.updateProjectionMatrix();
         renderer.setPixelRatio(Math.min(devicePixelRatio, mount.clientWidth < 760 ? 1.25 : 1.5));
         renderer.setSize(mount.clientWidth, mount.clientHeight);
+        composer?.setSize(mount.clientWidth, mount.clientHeight);
       };
       resize();
       window.addEventListener('resize', resize);
 
       return () => {
         window.removeEventListener('resize', resize);
+        window.removeEventListener('jaldi-weather', onWeatherChange as EventListener);
+        composer?.dispose();
+        rainGeometry.dispose();
         localVehicle?.free();
         world.free();
       };
