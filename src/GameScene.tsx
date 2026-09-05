@@ -54,6 +54,15 @@ function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0
   return mesh;
 }
 
+function cylinder(radius: number, height: number, color: number, x = 0, y = 0, z = 0, sides = 10) {
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, height, sides),
+    new THREE.MeshLambertMaterial({ color })
+  );
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
 function wheel(x: number, z: number, radius = 0.35) {
   const mesh = new THREE.Mesh(
     new THREE.CylinderGeometry(radius, radius, 0.25, 12),
@@ -159,15 +168,25 @@ function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = fals
 function createRoadsideBlock(index: number, side: number) {
   const group = new THREE.Group();
   const palettes = [0xe6a15c, 0x75a6a4, 0xd87668, 0xd1b36a, 0x8c83a8, 0xb9c477];
+  const awningPalettes = [0xc84636, 0x197c78, 0xe4a12f, 0x4d6094, 0x8c3940];
   const width = 4.2 + (index % 3) * 0.8;
   const depth = 4.5 + ((index + 1) % 3) * 0.9;
   const floors = 2 + (index % 4);
   const height = floors * 1.65;
   const color = palettes[index % palettes.length];
+  const awningColor = awningPalettes[index % awningPalettes.length];
 
+  // Footpath and a painted curb make the road feel like a real neighborhood
+  // rather than buildings placed directly on grass.
+  group.add(box(width + 1.35, 0.18, depth + 1.1, 0xbcae91, 0, 0.06, 0.25));
+  group.add(box(width + 1.5, 0.16, 0.24, index % 2 ? 0xf1ca54 : 0xf1eee0, 0, 0.12, -depth / 2 - 0.3));
   group.add(box(width, height, depth, color, 0, height / 2, 0));
   group.add(box(width + 0.15, 0.18, depth + 0.15, 0x53493e, 0, height + 0.08, 0));
-  group.add(box(width * 0.92, 0.5, 0.16, index % 2 ? 0xe84d38 : 0xf2be3e, 0, 1.05, -depth / 2 - 0.1));
+  group.add(box(width * 0.92, 0.44, 0.24, awningColor, 0, 1.18, -depth / 2 - 0.16));
+  group.add(box(width * 0.62, 0.27, 0.09, 0x1e2a26, 0, 1.62, -depth / 2 - 0.29));
+  group.add(box(0.7, 1.02, 0.08, 0x4f3725, 0, 0.57, -depth / 2 - 0.22));
+  group.add(box(0.5, 0.46, 0.09, 0xbde8ed, -width * 0.3, 0.92, -depth / 2 - 0.23));
+  group.add(box(0.5, 0.46, 0.09, 0xbde8ed, width * 0.3, 0.92, -depth / 2 - 0.23));
 
   const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xa9e2ed });
   for (let floor = 1; floor < floors; floor += 1) {
@@ -176,6 +195,23 @@ function createRoadsideBlock(index: number, side: number) {
       windowMesh.position.set(windowX, floor * 1.55 + 0.35, -depth / 2 - 0.011);
       group.add(windowMesh);
     }
+  }
+
+  // Balconies, rooftop tanks and small satellite dishes give each repeated
+  // building a recognisable silhouette at road speed.
+  if (floors > 2) {
+    const balcony = box(width * 0.68, 0.1, 0.55, 0xf0dfc0, 0, 2.28, -depth / 2 - 0.24);
+    group.add(balcony);
+    for (const railX of [-width * 0.25, 0, width * 0.25]) group.add(box(0.045, 0.38, 0.045, 0xf0dfc0, railX, 2.48, -depth / 2 - 0.44));
+  }
+  if (index % 2 === 0) {
+    group.add(cylinder(0.42, 0.62, 0x23282b, width * 0.22, height + 0.47, depth * 0.12));
+    group.add(cylinder(0.32, 0.08, 0x3d474b, width * 0.22, height + 0.82, depth * 0.12));
+  } else {
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xd9ded8 }));
+    dish.rotation.x = -0.7;
+    dish.position.set(-width * 0.24, height + 0.35, depth * 0.12);
+    group.add(dish, box(0.05, 0.45, 0.05, 0x4d5150, -width * 0.24, height + 0.18, depth * 0.12));
   }
 
   // A simple tree and lamp make each block read as a lively Indian roadside.
@@ -189,6 +225,14 @@ function createRoadsideBlock(index: number, side: number) {
   group.add(crown);
   group.add(box(0.1, 2.8, 0.1, 0x343b3e, -treeX, 1.4, -depth / 2 - 0.6));
   group.add(box(0.55, 0.14, 0.22, 0xffe7a3, -treeX + side * 0.22, 2.75, -depth / 2 - 0.6));
+  if (index % 3 === 0) {
+    // A tiny chai/kirana stall silhouette adds local character without a
+    // heavy texture or another downloaded asset.
+    const stallX = side > 0 ? width * 0.55 : -width * 0.55;
+    group.add(box(1.05, 0.82, 0.72, 0x7f5132, stallX, 0.5, -depth / 2 - 0.62));
+    group.add(box(1.22, 0.13, 0.9, 0xe2b84d, stallX, 0.98, -depth / 2 - 0.62));
+    group.add(cylinder(0.12, 0.22, 0xd9d4bd, stallX - 0.25, 1.16, -depth / 2 - 0.75, 8));
+  }
   return group;
 }
 
@@ -215,8 +259,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       if (disposed || !mount) return;
 
       const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x93c9e8);
-      scene.fog = new THREE.Fog(0x93c9e8, 55, 135);
+      // Golden-hour colour grading provides a warmer, more memorable city
+      // without an expensive sky shader (important for event phones).
+      scene.background = new THREE.Color(0xe9a86f);
+      scene.fog = new THREE.Fog(0xe9b984, 52, 145);
       const camera = new THREE.PerspectiveCamera(58, mount.clientWidth / mount.clientHeight, 0.1, 180);
       camera.position.set(0, 7.5, 12);
       camera.lookAt(0, 0, -20);
@@ -226,10 +272,17 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       mount.appendChild(renderer.domElement);
 
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x354126, 2.4));
-      const sun = new THREE.DirectionalLight(0xfff1c7, 2.8);
+      scene.add(new THREE.HemisphereLight(0xffd8b0, 0x3d5b35, 2.7));
+      const sun = new THREE.DirectionalLight(0xffc26e, 3.3);
       sun.position.set(-8, 18, 10);
       scene.add(sun);
+      const sunDisk = new THREE.Mesh(
+        new THREE.CircleGeometry(8, 28),
+        new THREE.MeshBasicMaterial({ color: 0xffd27a, fog: false })
+      );
+      sunDisk.position.set(-27, 23, -125);
+      sunDisk.lookAt(camera.position);
+      scene.add(sunDisk);
 
       const assetLoader = new GLTFLoader();
       const trafficTemplates = await Promise.all(TRAFFIC_ASSETS.map(async (url, index) => {
@@ -260,6 +313,18 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       road.position.z = -95;
       scene.add(road);
 
+      const shoulderMaterial = new THREE.MeshLambertMaterial({ color: 0x69714d });
+      const curbMaterial = new THREE.MeshLambertMaterial({ color: 0xe3d3a5 });
+      for (const side of [-1, 1]) {
+        const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 260), shoulderMaterial);
+        shoulder.rotation.x = -Math.PI / 2;
+        shoulder.position.set(side * 7.6, -0.008, -95);
+        scene.add(shoulder);
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 260), curbMaterial);
+        curb.position.set(side * 6.6, 0.08, -95);
+        scene.add(curb);
+      }
+
       const vergeMaterial = new THREE.MeshLambertMaterial({ color: 0x527b3e });
       for (const side of [-1, 1]) {
         const verge = new THREE.Mesh(new THREE.PlaneGeometry(35, 260), vergeMaterial);
@@ -276,6 +341,18 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           stripe.position.set(x, 0.012, z);
           scene.add(stripe);
           roadMarkers.push({ mesh: stripe, baseZ: z });
+        }
+      }
+      // Sparse crossings and speed-breaker markings make the street feel
+      // inhabited while preserving a clear, readable driving line.
+      const roadDetails: Array<{ mesh: THREE.Mesh; baseZ: number }> = [];
+      for (let z = -205; z < 20; z += 54) {
+        for (const x of [-4.6, -3.45, -2.3, -1.15, 0, 1.15, 2.3, 3.45, 4.6]) {
+          const crossing = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.05), stripeMaterial);
+          crossing.rotation.x = -Math.PI / 2;
+          crossing.position.set(x, 0.016, z);
+          scene.add(crossing);
+          roadDetails.push({ mesh: crossing, baseZ: z });
         }
       }
 
@@ -411,6 +488,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
 
         for (const marker of roadMarkers) {
           marker.mesh.position.z = ((marker.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
+        }
+        for (const detail of roadDetails) {
+          detail.mesh.position.z = ((detail.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
         }
         for (const block of roadsideBlocks) {
           const relativeDistance = ((block.baseDistance - myDistance) % blockLoop + blockLoop) % blockLoop;
