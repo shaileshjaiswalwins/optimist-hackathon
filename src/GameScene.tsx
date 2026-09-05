@@ -188,7 +188,7 @@ function createTrafficVehicle(variant: number) {
   return group;
 }
 
-function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = false) {
+function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = false, maxFootprint?: number) {
   const container = new THREE.Group();
   const model = source.clone(true);
   container.add(model);
@@ -198,7 +198,22 @@ function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = fals
   const referenceSize = byHeight ? size.y : Math.max(size.x, size.z);
   model.scale.setScalar(referenceSize > 0 ? targetSize / referenceSize : 1);
   model.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(model);
+  let bounds = new THREE.Box3().setFromObject(model);
+  // A height-only scale on an arbitrary architectural asset can leave a
+  // footprint far wider than intended (e.g. a squat, wide source model
+  // scaled up to skyscraper height). Clamp X/Z only, after the height is
+  // set, so buildings never bleed into the road or neighbouring blocks.
+  if (maxFootprint) {
+    const footprintSize = bounds.getSize(new THREE.Vector3());
+    const footprint = Math.max(footprintSize.x, footprintSize.z);
+    if (footprint > maxFootprint) {
+      const footprintScale = maxFootprint / footprint;
+      model.scale.x *= footprintScale;
+      model.scale.z *= footprintScale;
+      model.updateMatrixWorld(true);
+      bounds = new THREE.Box3().setFromObject(model);
+    }
+  }
   const center = bounds.getCenter(new THREE.Vector3());
   model.position.x -= center.x;
   model.position.y -= bounds.min.y;
@@ -542,6 +557,15 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const rawBuildingScenes = quality === 'low' ? [] : await Promise.all(BUILDING_ASSETS.map(async url => {
         try {
           const asset = await assetLoader.loadAsync(url);
+          // These PBR materials ship metallic trim/glass values authored for a
+          // scene with a reflection probe. With no envMap here, metalness
+          // reads as near-black except for one glary highlight — cap it so
+          // windows/trim look like matte painted panels instead of mirrors.
+          asset.scene.traverse(child => {
+            if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+              child.material.metalness = Math.min(child.material.metalness, 0.15);
+            }
+          });
           return asset.scene;
         } catch (error) {
           console.warn(`Could not load building asset ${url}; using fallback model.`, error);
@@ -554,10 +578,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const nearHeights = [4.5, 6.5, 8.5];
       const farHeights = [11, 15, 20];
       const buildingTemplatesNear = rawBuildingScenes
-        .map((scene, i) => (scene ? normalizeAsset(scene, nearHeights[i % nearHeights.length], true) : undefined))
+        .map((scene, i) => (scene ? normalizeAsset(scene, nearHeights[i % nearHeights.length], true, 6.5) : undefined))
         .filter((t): t is THREE.Group => !!t);
       const buildingTemplatesFar = rawBuildingScenes
-        .map((scene, i) => (scene ? normalizeAsset(scene, farHeights[i % farHeights.length], true) : undefined))
+        .map((scene, i) => (scene ? normalizeAsset(scene, farHeights[i % farHeights.length], true, 8.5) : undefined))
         .filter((t): t is THREE.Group => !!t);
 
       // Asphalt has only a BaseColor in this pack; concrete's Normal/ORM are a
@@ -738,7 +762,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const routeLandmarks: Array<{ object: THREE.LOD; baseDistance: number }> = [];
       for (const zone of CITY_ROUTE_ZONES) {
         const landmark = createLandmark(zone.landmark);
-        landmark.position.set(zone.id === 'orr' ? -7.6 : zone.id === 'cbd' ? -7.2 : 7.2, 0, 0);
+        // The widest landmark (SILK BOARD) has a ~9-unit footprint; anchoring
+        // at 12.5 keeps every landmark's inner edge clear of the 13-wide road
+        // (±6.5) instead of sitting on top of the driving lanes.
+        landmark.position.set(zone.id === 'orr' || zone.id === 'cbd' ? -12.5 : 12.5, 0, 0);
         scene.add(landmark);
         routeLandmarks.push({ object: landmark, baseDistance: zone.start + 34 });
       }

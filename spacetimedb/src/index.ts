@@ -377,11 +377,12 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
       const gap = front.distance - rear.distance;
       if (gap >= 4.6) continue;
       if (Math.abs(front.x - rear.x) >= 1.9) continue;
-      const separated = {
-        ...rear,
-        distance: front.distance - 4.6,
-        speed: Math.min(rear.speed, Math.max(0, front.speed - 0.5)),
-      };
+      // Only prevent the trailing car from tunnelling through the leader.
+      // Do NOT also crush its stored speed: a faster rear car must keep
+      // building real speed while boxed in, so the instant it changes lane
+      // (or the leader does) it actually pulls ahead instead of forever
+      // being capped a hair below whichever bot it happened to sit behind.
+      const separated = { ...rear, distance: front.distance - 4.6 };
       ctx.db.player_position.player_id.update(separated);
       activePositions[rearIndex] = separated;
     }
