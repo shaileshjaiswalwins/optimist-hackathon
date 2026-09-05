@@ -12,12 +12,6 @@ const TRAFFIC_ASSETS = [
   '/assets/kenney/car-kit/police.glb',
 ];
 
-const ROADSIDE_ASSETS = [
-  { url: '/assets/kenney/city-kit-roads/traffic-light.glb', height: 4.6 },
-  { url: '/assets/kenney/city-kit-roads/road-sign-warning.glb', height: 2.4 },
-  { url: '/assets/kenney/city-kit-roads/construction-barrier.glb', height: 0.85 },
-];
-
 type Profile = {
   playerId: bigint;
   name: string;
@@ -488,15 +482,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           return undefined;
         }
       }));
-      const roadsideTemplates = await Promise.all(ROADSIDE_ASSETS.map(async ({ url, height }) => {
-        try {
-          const asset = await assetLoader.loadAsync(url);
-          return normalizeAsset(asset.scene, height, true);
-        } catch (error) {
-          console.warn(`Could not load roadside asset ${url}.`, error);
-          return undefined;
-        }
-      }));
       if (disposed) return;
 
       const road = new THREE.Mesh(
@@ -587,23 +572,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           skylineBlocks.push({ group, baseDistance: index * skylineSpacing + (side > 0 ? skylineSpacing / 2 : 0) });
         }
       }
-      const roadsideProps: Array<{ group: THREE.Group; baseDistance: number }> = [];
-      const propSpacing = 22;
-      const propLoop = 18 * propSpacing;
-      for (const side of [-1, 1]) {
-        for (let index = 0; index < 18; index += 1) {
-          const template = roadsideTemplates[index % roadsideTemplates.length];
-          if (!template) continue;
-          const group = template.clone(true);
-          group.position.x = side * 7.25;
-          group.rotation.y = side > 0 ? Math.PI : 0;
-          scene.add(group);
-          roadsideProps.push({
-            group,
-            baseDistance: index * propSpacing + (side > 0 ? propSpacing / 2 : 0),
-          });
-        }
-      }
       const sidewalkPeople: Array<{ group: THREE.Group; baseDistance: number; phase: number }> = [];
       const peopleSpacing = 18;
       const peopleLoop = 16 * peopleSpacing;
@@ -617,22 +585,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
             baseDistance: index * peopleSpacing + (side > 0 ? peopleSpacing / 2 : 0),
             phase: index * 0.83 + (side > 0 ? 0.45 : 0),
           });
-        }
-      }
-      // Decorative parked vehicles make the city feel occupied but are never
-      // collision objects, so they cannot interfere with the race lanes.
-      const parkedVehicles: Array<{ mesh: THREE.Group; baseDistance: number }> = [];
-      const parkedSpacing = 29;
-      const parkedLoop = 10 * parkedSpacing;
-      for (const side of [-1, 1]) {
-        for (let index = 0; index < 10; index += 1) {
-          const template = trafficTemplates[(index + (side > 0 ? 2 : 0)) % trafficTemplates.length];
-          const mesh = template?.clone(true) ?? createTrafficVehicle(index % 3);
-          mesh.scale.setScalar(0.62);
-          mesh.position.x = side * 7.55;
-          mesh.rotation.y = index % 2 ? Math.PI : 0;
-          scene.add(mesh);
-          parkedVehicles.push({ mesh, baseDistance: index * parkedSpacing + (side > 0 ? parkedSpacing / 2 : 0) });
         }
       }
 
@@ -760,11 +712,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           block.group.position.z = 18 - relativeDistance;
           block.group.visible = relativeDistance < 165;
         }
-        for (const prop of roadsideProps) {
-          const relativeDistance = ((prop.baseDistance - myDistance) % propLoop + propLoop) % propLoop;
-          prop.group.position.z = 18 - relativeDistance;
-          prop.group.visible = relativeDistance < 150;
-        }
         for (const person of sidewalkPeople) {
           const relativeDistance = ((person.baseDistance - myDistance) % peopleLoop + peopleLoop) % peopleLoop;
           const step = now * 0.009 + person.phase;
@@ -782,11 +729,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
             limbs[3].rotation.x = swing * 0.75;
           }
           person.group.visible = relativeDistance < 115;
-        }
-        for (const parked of parkedVehicles) {
-          const relativeDistance = ((parked.baseDistance - myDistance) % parkedLoop + parkedLoop) % parkedLoop;
-          parked.mesh.position.z = 18 - relativeDistance;
-          parked.mesh.visible = relativeDistance < 145;
         }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);

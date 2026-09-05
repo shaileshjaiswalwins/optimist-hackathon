@@ -266,15 +266,17 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     }
   }
 
-  if (nextTick % 32n === 0n) {
+  // Keep hazards readable and dodgeable: one well-spaced vehicle at a time,
+  // rather than a dense stream that can appear to pop or overlap.
+  if (nextTick % 52n === 0n) {
     const lead = Math.max(0, ...[...ctx.db.player_position.match_id.filter(timer.match_id)].map(row => row.distance));
-    const spawnDistance = lead + 72;
+    const spawnDistance = lead + 100;
     const lanes = [-3.2, 0, 3.2];
     const laneOffset = ctx.random.integerInRange(0, lanes.length - 1);
     const activeObstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)].filter(row => row.active);
     const spawnX = lanes
       .map((_, index) => lanes[(index + laneOffset) % lanes.length])
-      .find(x => !activeObstacles.some(row => Math.abs(row.x - x) < 1.9 && Math.abs(row.distance - spawnDistance) < 12));
+      .find(x => !activeObstacles.some(row => Math.abs(row.x - x) < 1.9 && Math.abs(row.distance - spawnDistance) < 20));
     if (spawnX !== undefined) {
       ctx.db.obstacle.insert({
         obstacle_id: 0n, match_id: timer.match_id,
@@ -287,7 +289,7 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
   const obstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)];
   for (const currentObstacle of obstacles) {
     if (!currentObstacle.active) continue;
-    const moved = { ...currentObstacle, distance: currentObstacle.distance - 0.8 };
+    const moved = { ...currentObstacle, distance: currentObstacle.distance - 0.5 };
     ctx.db.obstacle.obstacle_id.update(moved);
     for (const position of ctx.db.player_position.match_id.filter(timer.match_id)) {
       const vitals = ctx.db.player_vitals.player_id.find(position.player_id);
