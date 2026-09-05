@@ -152,7 +152,7 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
     ctx.db.player_position.insert({
       player_id: racer.player_id, match_id,
       x: ((index % 3) - 1) * 3.2, distance: index * -3,
-      speed: racer.is_bot ? 17 + (index % 3) : 12,
+      speed: racer.is_bot ? 15 + (index % 3) : 0,
       steering: 0, throttle: racer.is_bot ? 0.72 : 0,
       boost: false, input_seq: 0,
     });
@@ -161,7 +161,7 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   ctx.db.match.match_id.update({ ...selectedMatch, state: 'active', started_at: ctx.timestamp });
   ctx.db.game_tick_schedule.insert({
     scheduled_id: 0n,
-    scheduled_at: ScheduleAt.interval(100_000n),
+    scheduled_at: ScheduleAt.interval(50_000n),
     match_id,
   });
 });
@@ -188,18 +188,20 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     const position = ctx.db.player_position.player_id.find(profile.player_id);
     if (!vitals || !position || vitals.eliminated) continue;
     let steering = position.steering;
-    if (profile.is_bot && nextTick % BigInt(11 + Number(profile.player_id % 5n)) === 0n) {
-      steering = ctx.random.integerInRange(-1, 1);
+    if (profile.is_bot) {
+      if (Math.abs(position.x) > 3.9) steering = position.x > 0 ? -1 : 1;
+      else if (nextTick % 30n === 0n) steering = ctx.random.integerInRange(-1, 1);
+      else if (nextTick % 30n === 8n) steering = 0;
     }
-    const targetSpeed = 8 + position.throttle * 16 + (position.boost ? 7 : 0);
-    const speed = position.speed + (targetSpeed - position.speed) * 0.14;
-    const x = Math.max(-4.65, Math.min(4.65, position.x + steering * (3.2 + speed * 0.12) * 0.1));
-    const distance = position.distance + speed * 0.1;
+    const targetSpeed = position.throttle * 24 + (position.boost ? 7 : 0);
+    const speed = position.speed + (targetSpeed - position.speed) * 0.1;
+    const x = Math.max(-4.65, Math.min(4.65, position.x + steering * (3.2 + speed * 0.12) * 0.05));
+    const distance = position.distance + speed * 0.05;
     ctx.db.player_position.player_id.update({ ...position, x, speed, steering, distance });
     ctx.db.player_vitals.player_id.update({ ...vitals, score: Math.max(vitals.score, Math.floor(distance)) });
   }
 
-  if (nextTick % 16n === 0n) {
+  if (nextTick % 32n === 0n) {
     const lead = Math.max(0, ...[...ctx.db.player_position.match_id.filter(timer.match_id)].map(row => row.distance));
     ctx.db.obstacle.insert({
       obstacle_id: 0n, match_id: timer.match_id,
@@ -211,7 +213,7 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
   const obstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)];
   for (const currentObstacle of obstacles) {
     if (!currentObstacle.active) continue;
-    const moved = { ...currentObstacle, distance: currentObstacle.distance - 1.6 };
+    const moved = { ...currentObstacle, distance: currentObstacle.distance - 0.8 };
     ctx.db.obstacle.obstacle_id.update(moved);
     for (const position of ctx.db.player_position.match_id.filter(timer.match_id)) {
       const vitals = ctx.db.player_vitals.player_id.find(position.player_id);

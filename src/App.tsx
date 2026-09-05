@@ -133,7 +133,7 @@ function App() {
     });
     return (
       <main className="game-page">
-        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} />
+        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} />
         <header className="hud top-hud">
           <div><small>{Math.round(myPosition?.speed ?? 0)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>
           <div className="hud-title">GHAR JALDI PAHUNCHO</div>

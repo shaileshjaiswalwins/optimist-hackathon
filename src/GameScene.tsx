@@ -28,6 +28,7 @@ type Props = {
   profiles: readonly Profile[];
   positions: readonly Position[];
   obstacles: readonly Obstacle[];
+  input: { current: { steering: number; throttle: number; boost: boolean } };
 };
 
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0) {
@@ -120,7 +121,7 @@ function createTrafficVehicle(variant: number) {
   return group;
 }
 
-export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props) {
+export function GameScene({ myPlayerId, profiles, positions, obstacles, input }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
   const positionsRef = useRef(positions);
@@ -192,10 +193,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
       const obstacleMeshes = new Map<string, THREE.Group>();
       const obstacleBodies = new Map<string, RigidBody>();
 
-      const ensureCar = (profile: Profile) => {
+      const ensureCar = (profile: Profile, initialX: number, initialZ: number) => {
         const key = profile.playerId.toString();
         if (carMeshes.has(key)) return;
         const group = createPlayerVehicle(profile);
+        group.position.set(initialX, 0, initialZ);
         scene.add(group);
         const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
         world.createCollider(RAPIER.ColliderDesc.cuboid(0.8, 0.5, 1.4), body);
@@ -203,10 +205,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
         carBodies.set(key, body);
       };
 
-      const ensureObstacle = (obstacle: Obstacle) => {
+      const ensureObstacle = (obstacle: Obstacle, initialZ: number) => {
         const key = obstacle.obstacleId.toString();
         if (obstacleMeshes.has(key)) return;
         const mesh = createTrafficVehicle(Number(obstacle.obstacleId % 3n));
+        mesh.position.set(obstacle.x, 0, initialZ);
         scene.add(mesh);
         const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
         world.createCollider(RAPIER.ColliderDesc.cuboid(0.85, 0.55, 1.5), body);
@@ -215,29 +218,50 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
       };
 
       let previous = performance.now();
+      let predictedX: number | undefined;
+      let predictedDistance: number | undefined;
+      let predictedSpeed = 0;
       const render = (now: number) => {
         if (disposed || !renderer) return;
         const dt = Math.min((now - previous) / 1000, 0.05);
         previous = now;
-        const myDistance = positionsRef.current.find(row => row.playerId === myPlayerId)?.distance ?? 0;
+        const authoritativeMe = positionsRef.current.find(row => row.playerId === myPlayerId);
+        if (predictedX === undefined) predictedX = authoritativeMe?.x ?? 0;
+        if (predictedDistance === undefined) predictedDistance = authoritativeMe?.distance ?? 0;
+        const targetSpeed = input.current.throttle * 24 + (input.current.boost ? 7 : 0);
+        predictedSpeed = THREE.MathUtils.damp(predictedSpeed, targetSpeed, 7, dt);
+        predictedX = Math.max(-4.65, Math.min(4.65, predictedX + input.current.steering * (3.2 + predictedSpeed * 0.12) * dt));
+        predictedDistance += predictedSpeed * dt;
+        if (authoritativeMe) {
+          predictedX = THREE.MathUtils.damp(predictedX, authoritativeMe.x, 3.2, dt);
+          predictedDistance = THREE.MathUtils.damp(predictedDistance, authoritativeMe.distance, 2.2, dt);
+        }
+        const myDistance = predictedDistance;
 
-        for (const profile of profilesRef.current) ensureCar(profile);
+        for (const profile of profilesRef.current) {
+          const position = positionsRef.current.find(row => row.playerId === profile.playerId);
+          if (!position) continue;
+          const initialX = profile.playerId === myPlayerId ? predictedX : position.x;
+          const initialZ = profile.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
+          ensureCar(profile, initialX, initialZ);
+        }
         for (const position of positionsRef.current) {
           const key = position.playerId.toString();
           const mesh = carMeshes.get(key);
           const body = carBodies.get(key);
           if (!mesh || !body) continue;
-          const targetX = position.x;
+          const targetX = position.playerId === myPlayerId ? predictedX : position.x;
           const targetZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 11, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 9, dt);
-          mesh.rotation.y = THREE.MathUtils.damp(mesh.rotation.y, -position.steering * 0.13, 10, dt);
-          mesh.rotation.z = THREE.MathUtils.damp(mesh.rotation.z, -position.steering * 0.07, 10, dt);
+          const visualSteering = position.playerId === myPlayerId ? input.current.steering : position.steering;
+          mesh.rotation.y = THREE.MathUtils.damp(mesh.rotation.y, -visualSteering * 0.13, 10, dt);
+          mesh.rotation.z = THREE.MathUtils.damp(mesh.rotation.z, -visualSteering * 0.07, 10, dt);
           body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.8, z: mesh.position.z });
         }
 
         for (const current of obstaclesRef.current) {
-          ensureObstacle(current);
+          ensureObstacle(current, 4 - (current.distance - myDistance));
           const key = current.obstacleId.toString();
           const mesh = obstacleMeshes.get(key)!;
           const body = obstacleBodies.get(key)!;
@@ -253,7 +277,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
 
         const roadOffset = myDistance % 10;
         for (const marker of roadMarkers) marker.mesh.position.z = marker.baseZ + roadOffset;
-        const myX = positionsRef.current.find(row => row.playerId === myPlayerId)?.x ?? 0;
+        const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
         camera.lookAt(myX * 0.12, 0.5, -20);
 
