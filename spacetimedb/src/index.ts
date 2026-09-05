@@ -108,6 +108,8 @@ const MAX_PLAYERS = 30;
 // A solo player should never wait for other humans. Bots top the field up to
 // this size and back off entirely once enough humans have joined.
 const MIN_FIELD_SIZE = 4;
+// 4 seconds at the 50ms tick interval.
+const START_GRACE_TICKS = 80n;
 const MAX_BOTS = MIN_FIELD_SIZE - 1;
 
 // Single source of truth for vehicle feel. The client's local Rapier tuning
@@ -315,6 +317,13 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
   const selectedMatch = ctx.db.match.match_id.find(timer.match_id);
   if (!selectedMatch || selectedMatch.state !== 'active') return;
   const nextTick = selectedMatch.tick_count + 1n;
+  // Give every client (human clients load 3D assets; bots don't) a few
+  // seconds to finish loading before anyone moves, so bots can't rack up
+  // a lead while a player's browser is still fetching models/textures.
+  if (nextTick <= START_GRACE_TICKS) {
+    ctx.db.match.match_id.update({ ...selectedMatch, tick_count: nextTick });
+    return;
+  }
   const profiles = [...ctx.db.player_profile.match_id.filter(timer.match_id)];
   const lanes = laneCenters(laneCountFor(profiles.length));
   const roadHalfWidth = (lanes.length - 1) / 2 * LANE_WIDTH + 1.45;

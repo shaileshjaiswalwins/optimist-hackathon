@@ -738,20 +738,33 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const shoulderMaterial = new THREE.MeshLambertMaterial({ color: 0x69714d });
       const curbMaterial = new THREE.MeshLambertMaterial({ color: 0xe3d3a5 });
       const sidewalkMaterial = new THREE.MeshLambertMaterial({ color: 0xc8baa1 });
+      // These strips must butt up against the actual road edge (roadHalfWidth),
+      // not a magic-number offset tuned for an old static road width — that
+      // mismatch left a bare, untextured gap (rendering as a black stripe)
+      // between the road and the shoulder whenever roadHalfWidth was smaller
+      // than the old assumed baseline.
+      const curbWidth = 0.18;
+      const shoulderWidth = 2.2;
+      const sidewalkWidth = 4.7;
+      const vergeWidth = 29.5;
+      const curbCenter = roadHalfWidth + curbWidth / 2;
+      const shoulderCenter = curbCenter + curbWidth / 2 + shoulderWidth / 2;
+      const sidewalkCenter = shoulderCenter + shoulderWidth / 2 + sidewalkWidth / 2;
+      const vergeCenter = sidewalkCenter + sidewalkWidth / 2 + vergeWidth / 2;
       for (const side of [-1, 1]) {
-        const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 260), shoulderMaterial);
+        const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(shoulderWidth, 260), shoulderMaterial);
         shoulder.rotation.x = -Math.PI / 2;
-        shoulder.position.set(side * (7.6 + laneGrowth), -0.008, -95);
+        shoulder.position.set(side * shoulderCenter, -0.008, -95);
         scene.add(shoulder);
-        const curb = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 260), curbMaterial);
+        const curb = new THREE.Mesh(new THREE.PlaneGeometry(curbWidth, 260), curbMaterial);
         curb.rotation.x = -Math.PI / 2;
-        curb.position.set(side * (6.6 + laneGrowth), 0.008, -95);
+        curb.position.set(side * curbCenter, 0.008, -95);
         scene.add(curb);
         // Keep the pavement flat. The previous raised slab exposed a long,
         // strongly lit side face that looked like a glowing/glitching stripe.
-        const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(4.7, 260), sidewalkMaterial);
+        const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(sidewalkWidth, 260), sidewalkMaterial);
         sidewalk.rotation.x = -Math.PI / 2;
-        sidewalk.position.set(side * (9.2 + laneGrowth), 0.006, -95);
+        sidewalk.position.set(side * sidewalkCenter, 0.006, -95);
         scene.add(sidewalk);
       }
 
@@ -759,9 +772,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       for (const side of [-1, 1]) {
         // Start grass after the pavement instead of underneath it, eliminating
         // overlapping ground surfaces at the sidewalk boundary.
-        const verge = new THREE.Mesh(new THREE.PlaneGeometry(29.5, 260), vergeMaterial);
+        const verge = new THREE.Mesh(new THREE.PlaneGeometry(vergeWidth, 260), vergeMaterial);
         verge.rotation.x = -Math.PI / 2;
-        verge.position.set(side * (26.45 + laneGrowth), -0.02, -95);
+        verge.position.set(side * vergeCenter, -0.02, -95);
         scene.add(verge);
       }
       const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf3e8bd });

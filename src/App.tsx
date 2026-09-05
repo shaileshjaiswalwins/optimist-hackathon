@@ -4,7 +4,6 @@ import { reducers, tables } from './module_bindings';
 import { GameScene } from './GameScene';
 import { VehicleDebugPanel } from './VehicleDebugPanel';
 import { MiniMap } from './MiniMap';
-import { SteeringWheel } from './SteeringWheel';
 import { HitToasts, type Toast } from './HitToast';
 import { isMuted, setMuted } from './muteState';
 import './styles.css';
@@ -306,7 +305,10 @@ function App() {
           <span className="ping-readout">{pingMs != null ? `${pingMs}ms` : '…'}</span>
         </div>
         <div className="controls hud">
-          <SteeringWheel onSteer={value => holdControl({ steering: value })} />
+          <div className="steering-controls">
+            <button type="button" onPointerDown={event => pressControl(event, { steering: -1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer left">◀</button>
+            <button type="button" onPointerDown={event => pressControl(event, { steering: 1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer right">▶</button>
+          </div>
           <div className="speed-controls">
             <button type="button" className="attack" disabled={!attackReady} onPointerDown={event => { event.preventDefault(); handleAttack(); }}>{attackLabel[myProfile.vehicleType as keyof typeof attackLabel] ?? 'KICK'}</button>
             <button type="button" className="boost" onPointerDown={event => pressControl(event, { boost: true })} onPointerUp={event => releaseControl(event, { boost: false })} onPointerCancel={event => releaseControl(event, { boost: false })}>BOOST</button>
