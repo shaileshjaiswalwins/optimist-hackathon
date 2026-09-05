@@ -391,7 +391,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       const carBodies = new Map<string, RigidBody>();
       const obstacleMeshes = new Map<string, THREE.Group>();
       const obstacleBodies = new Map<string, RigidBody>();
-      const visuallyConsumedObstacles = new Set<string>();
 
       const ensureCar = (profile: Profile, initialX: number, initialZ: number) => {
         const key = profile.playerId.toString();
@@ -461,6 +460,20 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.8, z: mesh.position.z });
         }
 
+        // Obstacle rows are the source of truth. Retire their meshes when the
+        // server removes the row, rather than leaving stale traffic frozen on
+        // the road. This also bounds the number of Three/Rapier objects in a
+        // long-running match.
+        const liveObstacleKeys = new Set(obstaclesRef.current.map(row => row.obstacleId.toString()));
+        for (const [key, mesh] of obstacleMeshes) {
+          if (liveObstacleKeys.has(key)) continue;
+          scene.remove(mesh);
+          const body = obstacleBodies.get(key);
+          if (body) world.removeRigidBody(body);
+          obstacleMeshes.delete(key);
+          obstacleBodies.delete(key);
+        }
+
         for (const current of obstaclesRef.current) {
           ensureObstacle(current, 4 - (current.distance - myDistance));
           const key = current.obstacleId.toString();
@@ -468,16 +481,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const body = obstacleBodies.get(key)!;
           const targetX = current.x;
           const targetZ = 4 - (current.distance - myDistance);
-          const touchingRacer = positionsRef.current.some(position => {
-            const racerX = position.playerId === myPlayerId ? (predictedX ?? 0) : position.x;
-            const racerZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
-            return Math.abs(racerX - targetX) < 1.9 && Math.abs(racerZ - targetZ) < 4.1;
-          });
-          // Client prediction can see contact before the 20 Hz server update.
-          // Latch the obstacle as consumed so it cannot briefly reappear behind
-          // the racer and look as though it reversed direction after impact.
-          if (touchingRacer) visuallyConsumedObstacles.add(key);
-          const visuallyActive = current.active && !visuallyConsumedObstacles.has(key);
+          // Do not hide an approaching vehicle based on a locally predicted
+          // overlap. That prediction includes other racers and was making
+          // traffic disappear before the server had actually resolved a hit.
+          const visuallyActive = current.active;
           mesh.visible = visuallyActive;
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 14, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 12, dt);
