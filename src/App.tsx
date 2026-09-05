@@ -10,6 +10,10 @@ import { isMuted, setMuted } from './muteState';
 import './styles.css';
 
 const attackLabel = { auto: 'KICK', scooty: 'KICK', thar: 'RAM' } as const;
+// Mirrors VEHICLE_DYNAMICS.attackCooldownTicks * the 50ms tick interval in
+// spacetimedb/src/index.ts. Keep both in sync by hand: a mismatch here just
+// makes the button look "ready" while the server still rejects the attack.
+const attackCooldownMs = { auto: 1500, scooty: 1500, thar: 2500 } as const;
 
 const vehicles = [
   { id: 'auto', emoji: '🛺', label: 'Auto' },
@@ -248,9 +252,10 @@ function App() {
 
   async function handleAttack() {
     if (!myProfile || Date.now() < attackCooldownUntil.current) return;
-    attackCooldownUntil.current = Date.now() + 1200;
+    const cooldown = attackCooldownMs[myProfile.vehicleType as keyof typeof attackCooldownMs] ?? attackCooldownMs.auto;
+    attackCooldownUntil.current = Date.now() + cooldown;
     setAttackReady(false);
-    window.setTimeout(() => setAttackReady(true), 1200);
+    window.setTimeout(() => setAttackReady(true), cooldown);
     try {
       await useAttack({ playerId: myProfile.playerId });
     } catch {
@@ -270,7 +275,7 @@ function App() {
     return (
       <main className="game-page">
         <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} onReady={() => setSceneReady(true)} />
-        <MiniMap myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} vitals={matchVitals} fieldSize={currentMatch.maxSlots} />
+        <MiniMap myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} vitals={matchVitals} fieldSize={participants.length} />
         {new URLSearchParams(window.location.search).get('debugPhysics') === '1' && <VehicleDebugPanel />}
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">

@@ -7,6 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { CITY_ROUTE_LOOP, CITY_ROUTE_ZONES } from './cityLayout';
 import { vehicleTuningFor } from './vehiclePhysics';
+import { roadHalfWidthFor } from './roadLayout';
 
 const TRAFFIC_ASSETS = [
   '/assets/kenney/car-kit/sedan.glb',
@@ -483,6 +484,14 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       await RAPIER.init();
       if (disposed || !mount) return;
 
+      // Mirrors the server's laneCountFor/roadHalfWidthFor (spacetimedb/src/index.ts):
+      // the drivable width grows with field size, so every fixed x-offset below
+      // (road, ground collider, sidewalks, roadside blocks) is expressed relative
+      // to this instead of the old static 3-lane numbers, to stay in sync.
+      const roadHalfWidth = roadHalfWidthFor(profiles.length);
+      const baselineHalfWidth = 4.65;
+      const laneGrowth = roadHalfWidth - baselineHalfWidth;
+
       const scene = new THREE.Scene();
       const skyColor = new THREE.Color(0xe9a86f);
       scene.background = skyColor;
@@ -549,7 +558,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           return undefined;
         }
       }));
-      if (disposed) return;
+      if (disposed) { composer?.dispose(); return; }
 
       // Skip glTF building loads on low quality entirely — the cheap procedural
       // boxes cost nothing and 78 roadside/skyline slots is a lot of clones to
@@ -565,6 +574,14 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
             if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
               child.material.metalness = Math.min(child.material.metalness, 0.15);
             }
+            // Cars and traffic already respect quality-gated shadows (see
+            // ensureCar/ensureObstacle below); these were the one visible
+            // gap where the road casts/receives shadows but the buildings
+            // lining it never do, at any quality tier.
+            if (child instanceof THREE.Mesh) {
+              child.castShadow = quality === 'high';
+              child.receiveShadow = true;
+            }
           });
           return asset.scene;
         } catch (error) {
@@ -572,7 +589,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           return undefined;
         }
       }));
-      if (disposed) return;
+      if (disposed) { composer?.dispose(); return; }
       // Near-field (roadside) buildings stay shorter than far-field (skyline)
       // ones so the two layers keep their existing depth cue.
       const nearHeights = [4.5, 6.5, 8.5];
@@ -608,7 +625,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         metalness: 0.02,
       });
       const road = new THREE.Mesh(
-        new THREE.PlaneGeometry(13, 260, 1, 1),
+        new THREE.PlaneGeometry(roadHalfWidth * 2 + 2.35, 260, 1, 1),
         roadMaterial
       );
       // aoMap needs a second UV channel; reuse uv since the ORM texture is
@@ -724,17 +741,17 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       for (const side of [-1, 1]) {
         const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 260), shoulderMaterial);
         shoulder.rotation.x = -Math.PI / 2;
-        shoulder.position.set(side * 7.6, -0.008, -95);
+        shoulder.position.set(side * (7.6 + laneGrowth), -0.008, -95);
         scene.add(shoulder);
         const curb = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 260), curbMaterial);
         curb.rotation.x = -Math.PI / 2;
-        curb.position.set(side * 6.6, 0.008, -95);
+        curb.position.set(side * (6.6 + laneGrowth), 0.008, -95);
         scene.add(curb);
         // Keep the pavement flat. The previous raised slab exposed a long,
         // strongly lit side face that looked like a glowing/glitching stripe.
         const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(4.7, 260), sidewalkMaterial);
         sidewalk.rotation.x = -Math.PI / 2;
-        sidewalk.position.set(side * 9.2, 0.006, -95);
+        sidewalk.position.set(side * (9.2 + laneGrowth), 0.006, -95);
         scene.add(sidewalk);
       }
 
@@ -744,7 +761,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         // overlapping ground surfaces at the sidewalk boundary.
         const verge = new THREE.Mesh(new THREE.PlaneGeometry(29.5, 260), vergeMaterial);
         verge.rotation.x = -Math.PI / 2;
-        verge.position.set(side * 26.45, -0.02, -95);
+        verge.position.set(side * (26.45 + laneGrowth), -0.02, -95);
         scene.add(verge);
       }
       const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf3e8bd });
@@ -765,7 +782,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         // The widest landmark (SILK BOARD) has a ~9-unit footprint; anchoring
         // at 12.5 keeps every landmark's inner edge clear of the 13-wide road
         // (±6.5) instead of sitting on top of the driving lanes.
-        landmark.position.set(zone.id === 'orr' || zone.id === 'cbd' ? -12.5 : 12.5, 0, 0);
+        const landmarkX = 12.5 + laneGrowth;
+        landmark.position.set(zone.id === 'orr' || zone.id === 'cbd' ? -landmarkX : landmarkX, 0, 0);
         scene.add(landmark);
         routeLandmarks.push({ object: landmark, baseDistance: zone.start + 34 });
       }
@@ -807,7 +825,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
             ? buildingTemplatesNear[roadsideIndex % buildingTemplatesNear.length]
             : undefined;
           const group = createRoadsideBlock(roadsideIndex, side, roadsideTemplate);
-          group.position.x = side * (13.1 + (index % 3) * 0.7);
+          group.position.x = side * (13.1 + laneGrowth + (index % 3) * 0.7);
           group.rotation.y = side > 0 ? -0.035 : 0.035;
           scene.add(group);
           roadsideBlocks.push({ group, baseDistance: index * blockSpacing + (side > 0 ? blockSpacing / 2 : 0) });
@@ -826,7 +844,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
             ? buildingTemplatesFar[skylineIndex % buildingTemplatesFar.length]
             : undefined;
           const group = createBengaluruBackdrop(skylineIndex, side, skylineTemplate);
-          group.position.x = side * (18.5 + (index % 2) * 1.5);
+          group.position.x = side * (18.5 + laneGrowth + (index % 2) * 1.5);
           group.rotation.y = side > 0 ? -0.06 : 0.06;
           scene.add(group);
           skylineBlocks.push({ group, baseDistance: index * skylineSpacing + (side > 0 ? skylineSpacing / 2 : 0) });
@@ -836,7 +854,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       // to own scoring, collisions, and all game rules. Rapier gives the
       // player vehicle a stable physical feel between authoritative updates.
       const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-      world.createCollider(RAPIER.ColliderDesc.cuboid(7, 0.08, 12000).setTranslation(0, -0.08, 0));
+      world.createCollider(RAPIER.ColliderDesc.cuboid(roadHalfWidth + 2.35, 0.08, 12000).setTranslation(0, -0.08, 0));
       const carMeshes = new Map<string, THREE.Group>();
       const obstacleMeshes = new Map<string, THREE.Group>();
       let localDriveBody: RigidBody | undefined;
@@ -927,10 +945,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         previousPhysicsZ = currentPhysicsZ;
         currentPhysicsX = translation.x;
         currentPhysicsZ = translation.z;
-        if (translation.x < -4.65 || translation.x > 4.65) {
-          localDriveBody.setTranslation({ x: THREE.MathUtils.clamp(translation.x, -4.65, 4.65), y: translation.y, z: translation.z }, true);
+        if (translation.x < -roadHalfWidth || translation.x > roadHalfWidth) {
+          localDriveBody.setTranslation({ x: THREE.MathUtils.clamp(translation.x, -roadHalfWidth, roadHalfWidth), y: translation.y, z: translation.z }, true);
           localDriveBody.setLinvel({ x: 0, y: 0, z: localDriveBody.linvel().z }, true);
-          currentPhysicsX = THREE.MathUtils.clamp(currentPhysicsX, -4.65, 4.65);
+          currentPhysicsX = THREE.MathUtils.clamp(currentPhysicsX, -roadHalfWidth, roadHalfWidth);
         }
       };
 
@@ -1132,9 +1150,24 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         window.removeEventListener('resize', resize);
         window.removeEventListener('jaldi-weather', onWeatherChange as EventListener);
         composer?.dispose();
-        rainGeometry.dispose();
         localVehicle?.free();
         world.free();
+        // Changing the Quality dropdown re-runs this whole effect (see the
+        // [myPlayerId, quality] deps below), tearing down and rebuilding the
+        // entire scene. Without this generic sweep, every one of the ~100+
+        // procedural meshes plus the loaded road/building textures would leak
+        // their GPU geometry/material/texture buffers on every toggle.
+        scene.traverse(object => {
+          const mesh = object as THREE.Mesh | THREE.LineSegments | THREE.InstancedMesh;
+          mesh.geometry?.dispose();
+          const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+          for (const material of materials) {
+            for (const mapKey of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'] as const) {
+              (material as THREE.MeshStandardMaterial)[mapKey]?.dispose();
+            }
+            material.dispose();
+          }
+        });
       };
     }
 
