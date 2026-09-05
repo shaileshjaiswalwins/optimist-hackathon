@@ -169,11 +169,20 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   }
 
   const racers = [...ctx.db.player_profile.match_id.filter(match_id)];
+  const startingGrid = [
+    { x: -3.2, distance: 0 },
+    { x: 0, distance: 0 },
+    { x: 3.2, distance: 0 },
+    { x: 0, distance: -4.8 },
+  ];
   racers.forEach((racer, index) => {
+    const gridSpot = startingGrid[index % startingGrid.length];
     ctx.db.player_position.insert({
       player_id: racer.player_id, match_id,
-      x: ((index % 3) - 1) * 3.2, distance: index * -6,
-      speed: racer.is_bot ? 15 + (index % 3) : 0,
+      // Everyone begins together in a visible grid. Bots accelerate from rest
+      // on the first ticks instead of appearing halfway up the road.
+      x: gridSpot.x, distance: gridSpot.distance,
+      speed: 0,
       steering: 0, throttle: racer.is_bot ? 0.72 : 0,
       boost: false, input_seq: 0,
     });

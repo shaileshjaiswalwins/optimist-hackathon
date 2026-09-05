@@ -619,6 +619,22 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           });
         }
       }
+      // Decorative parked vehicles make the city feel occupied but are never
+      // collision objects, so they cannot interfere with the race lanes.
+      const parkedVehicles: Array<{ mesh: THREE.Group; baseDistance: number }> = [];
+      const parkedSpacing = 29;
+      const parkedLoop = 10 * parkedSpacing;
+      for (const side of [-1, 1]) {
+        for (let index = 0; index < 10; index += 1) {
+          const template = trafficTemplates[(index + (side > 0 ? 2 : 0)) % trafficTemplates.length];
+          const mesh = template?.clone(true) ?? createTrafficVehicle(index % 3);
+          mesh.scale.setScalar(0.62);
+          mesh.position.x = side * 7.55;
+          mesh.rotation.y = index % 2 ? Math.PI : 0;
+          scene.add(mesh);
+          parkedVehicles.push({ mesh, baseDistance: index * parkedSpacing + (side > 0 ? parkedSpacing / 2 : 0) });
+        }
+      }
 
       const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
       const carMeshes = new Map<string, THREE.Group>();
@@ -754,7 +770,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const step = now * 0.009 + person.phase;
           // Small forward/back path movement plus a real limb swing prevents
           // the crowd from reading as static roadside mannequins.
-          person.group.position.z = 18 - relativeDistance + Math.sin(step * 0.22) * 1.15;
+          person.group.position.z = 18 - relativeDistance + Math.sin(step * 0.22) * 2.4;
           person.group.position.y = Math.max(0, Math.sin(step * 2) * 0.035);
           const walker = person.group.userData.walker as THREE.Group | undefined;
           const limbs = walker?.userData.limbs as THREE.Object3D[] | undefined;
@@ -767,8 +783,20 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           }
           person.group.visible = relativeDistance < 115;
         }
+        for (const parked of parkedVehicles) {
+          const relativeDistance = ((parked.baseDistance - myDistance) % parkedLoop + parkedLoop) % parkedLoop;
+          parked.mesh.position.z = 18 - relativeDistance;
+          parked.mesh.visible = relativeDistance < 145;
+        }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
+        const baseFov = camera.aspect < 0.72 ? 72 : 58;
+        const targetFov = input.current.boost ? baseFov + 7 : baseFov;
+        const nextFov = THREE.MathUtils.damp(camera.fov, targetFov, 6, dt);
+        if (Math.abs(nextFov - camera.fov) > 0.01) {
+          camera.fov = nextFov;
+          camera.updateProjectionMatrix();
+        }
         camera.lookAt(myX * 0.12, 0.5, -20);
 
         world.step();
