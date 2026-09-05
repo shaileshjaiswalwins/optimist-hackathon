@@ -1,4 +1,4 @@
-export type Toast = { id: string; text: string; tone: 'damage' | 'landed' };
+export type Toast = { id: string; text: string; tone: 'damage' | 'landed' | 'miss' };
 
 export function HitToasts({ toasts }: { toasts: Toast[] }) {
   if (!toasts.length) return null;

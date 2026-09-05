@@ -86,6 +86,8 @@ legend { margin-bottom:10px; }
 .hit-toast { padding:8px 20px; border-radius:12px; font-family:'Archivo Black',sans-serif; font-size:clamp(18px,4vw,28px); letter-spacing:.03em; text-transform:uppercase; text-shadow:0 3px 10px rgba(0,0,0,.6); animation:hit-pop 1.5s ease-out forwards; }
 .hit-toast-damage { color:#ff5d5d; }
 .hit-toast-landed { color:#ffd76a; }
+.hit-toast-miss { color:#9aa39a; }
+.controls .attack.swinging { transform:scale(.82) rotate(-8deg); filter:brightness(1.35); transition:transform .08s ease-out, filter .08s ease-out; }
 @keyframes hit-pop { 0% { opacity:0; transform:scale(.6); } 12% { opacity:1; transform:scale(1.12); } 25% { transform:scale(1); } 80% { opacity:1; } 100% { opacity:0; transform:scale(.92); } }
 .hud-corner { top:max(14px,env(safe-area-inset-top)); right:max(14px,env(safe-area-inset-right)); display:flex; align-items:center; gap:8px; }
 .corner-btn { width:34px; height:34px; padding:0; border:1px solid rgba(255,255,255,.4); border-radius:50%; color:#fff; background:rgba(8,15,10,.62); font-size:16px; line-height:1; cursor:pointer; }

@@ -46,6 +46,7 @@ function App() {
   const seenAttackKeys = useRef(new Set<string>());
   const attackCooldownUntil = useRef(0);
   const [attackReady, setAttackReady] = useState(true);
+  const [attackSwinging, setAttackSwinging] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pingMs, setPingMs] = useState<number | null>(null);
@@ -255,10 +256,14 @@ function App() {
     attackCooldownUntil.current = Date.now() + cooldown;
     setAttackReady(false);
     window.setTimeout(() => setAttackReady(true), cooldown);
+    setAttackSwinging(true);
+    window.setTimeout(() => setAttackSwinging(false), 220);
     try {
       await useAttack({ playerId: myProfile.playerId });
     } catch {
-      // no target in range or on cooldown server-side — silent no-op
+      // The server rejects a swing with nothing in range — show that
+      // distinctly from a hit so the button doesn't feel unresponsive.
+      pushToast('No target in range', 'miss');
     }
   }
 
@@ -310,7 +315,7 @@ function App() {
             <button type="button" onPointerDown={event => pressControl(event, { steering: 1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer right">▶</button>
           </div>
           <div className="speed-controls">
-            <button type="button" className="attack" disabled={!attackReady} onPointerDown={event => { event.preventDefault(); handleAttack(); }}>{attackLabel[myProfile.vehicleType as keyof typeof attackLabel] ?? 'KICK'}</button>
+            <button type="button" className={`attack${attackSwinging ? ' swinging' : ''}`} disabled={!attackReady} onPointerDown={event => { event.preventDefault(); handleAttack(); }}>{attackLabel[myProfile.vehicleType as keyof typeof attackLabel] ?? 'KICK'}</button>
             <button type="button" className="boost" onPointerDown={event => pressControl(event, { boost: true })} onPointerUp={event => releaseControl(event, { boost: false })} onPointerCancel={event => releaseControl(event, { boost: false })}>BOOST</button>
             <button type="button" className="accelerate" onPointerDown={event => pressControl(event, { throttle: 1 })} onPointerUp={event => releaseControl(event, { throttle: 0 })} onPointerCancel={event => releaseControl(event, { throttle: 0 })}>RACE</button>
           </div>
