@@ -37,7 +37,7 @@ legend { margin-bottom:10px; }
 .lobby h2,.lobby p { margin:0; }
 .lobby p { margin-top:5px; color:#9ba395; }
 .pulse { margin-top:8px; animation:breathe 1.2s ease-in-out infinite alternate; }
-.racer-list { grid-column:1/-1; display:grid; gap:9px; margin-top:18px; }
+.racer-list { grid-column:1/-1; display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:9px; max-height:46vh; margin-top:18px; overflow:auto; }
 .racer { display:grid; grid-template-columns:48px 1fr auto; align-items:center; gap:12px; padding:12px; border-radius:14px; background:#11170f; }
 .racer strong,.racer small { display:block; }
 .racer small { margin-top:3px; color:#7f8879; }
@@ -63,7 +63,7 @@ legend { margin-bottom:10px; }
 .hud-title { font-family:'Archivo Black',sans-serif; letter-spacing:.08em; }
 .health { justify-self:end; color:rgba(255,255,255,.3); letter-spacing:7px; font-size:22px; }
 .health .live { color:#ffbd42; }
-.mini-board { top:92px; right:18px; width:min(240px,42vw); padding:10px 12px; border-radius:14px; background:rgba(8,15,10,.62); backdrop-filter:blur(10px); font-size:12px; }
+.mini-board { top:92px; right:18px; width:min(240px,42vw); max-height:min(62vh,520px); overflow:auto; padding:10px 12px; border-radius:14px; background:rgba(8,15,10,.62); backdrop-filter:blur(10px); font-size:12px; }
 .mini-board div { display:flex; justify-content:space-between; gap:10px; padding:5px; }
 .quality-setting { top:calc(92px + 118px); right:18px; display:flex; align-items:center; gap:6px; padding:7px 9px; border-radius:10px; background:rgba(8,15,10,.62); font-size:11px; text-shadow:none; }
 .quality-setting select { border:0; border-radius:6px; padding:3px 4px; color:#fff; background:#26372b; font-size:11px; }
