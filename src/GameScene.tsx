@@ -79,6 +79,24 @@ function addFourWheels(group: THREE.Group, width: number, front: number, rear: n
   }
 }
 
+function addScootyRider(group: THREE.Group, shirt: number) {
+  // A compact low-poly rider makes the scooty read as a vehicle being driven,
+  // rather than an empty prop. The silhouette stays clear on mobile.
+  group.add(cylinder(0.22, 0.46, 0x7a4e35, 0, 2.12, 0.16, 10));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), new THREE.MeshLambertMaterial({ color: 0xc98561 }));
+  head.position.set(0, 2.48, 0.08);
+  group.add(head);
+  group.add(box(0.5, 0.62, 0.36, shirt, 0, 1.88, 0.08));
+  group.add(box(0.12, 0.62, 0.16, 0x26364a, -0.2, 1.33, 0.36));
+  group.add(box(0.12, 0.62, 0.16, 0x26364a, 0.2, 1.33, 0.36));
+  const handleArm = box(0.12, 0.52, 0.12, 0xc98561, 0.24, 1.95, -0.34);
+  handleArm.rotation.z = -0.72;
+  const otherArm = handleArm.clone();
+  otherArm.position.x = -0.24;
+  otherArm.rotation.z = 0.72;
+  group.add(handleArm, otherArm);
+}
+
 function createAuto(color: number) {
   const group = new THREE.Group();
   group.add(box(1.55, 0.65, 2.2, 0x16814c, 0, 0.65, 0.2));
@@ -102,6 +120,7 @@ function createScooty(color: number) {
   group.add(box(0.14, 1.15, 0.14, 0xb8c2c4, 0, 1.2, -0.7));
   group.add(box(0.9, 0.1, 0.1, 0x252525, 0, 1.75, -0.7));
   group.add(box(0.38, 0.28, 0.25, 0xf2e092, 0, 1.44, -0.82));
+  addScootyRider(group, color === 0x52d7c2 ? 0xc53f4d : color);
   return group;
 }
 
@@ -188,6 +207,56 @@ function streetSign(label: string, background: string, width: number) {
     streetSignMaterials.set(key, material);
   }
   return new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.3), material);
+}
+
+function racerNameplate(name: string, isBot: boolean) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 360;
+  canvas.height = 92;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = isBot ? '#3b4760' : '#123f35';
+  context.beginPath();
+  context.roundRect(6, 6, 348, 80, 26);
+  context.fill();
+  context.strokeStyle = isBot ? '#90a7cf' : '#fed36f';
+  context.lineWidth = 5;
+  context.stroke();
+  context.fillStyle = '#fff8e6';
+  context.font = '700 40px Arial';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(name.slice(0, 18), 180, 47);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  sprite.scale.set(2.8, 0.72, 1);
+  sprite.position.y = 3.35;
+  return sprite;
+}
+
+function addPedestrian(group: THREE.Group, x: number, z: number, paletteIndex: number, withDog = false) {
+  const outfits = [0xc74b43, 0x426ea5, 0x5a8c4a, 0xd98a32];
+  const outfit = outfits[paletteIndex % outfits.length];
+  group.add(cylinder(0.13, 0.62, 0x30343a, x - 0.11, 0.4, z, 8));
+  group.add(cylinder(0.13, 0.62, 0x30343a, x + 0.11, 0.4, z, 8));
+  group.add(box(0.42, 0.68, 0.24, outfit, x, 1.03, z));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 8, 7), new THREE.MeshLambertMaterial({ color: paletteIndex % 2 ? 0x8e5c40 : 0xc98761 }));
+  head.position.set(x, 1.58, z);
+  group.add(head);
+  if (withDog) {
+    const dogX = x + 0.62;
+    group.add(box(0.55, 0.3, 0.22, 0xa96f42, dogX, 0.3, z - 0.05));
+    group.add(cylinder(0.07, 0.35, 0x42372c, dogX - 0.18, 0.17, z - 0.14, 7));
+    group.add(cylinder(0.07, 0.35, 0x42372c, dogX + 0.18, 0.17, z - 0.14, 7));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshLambertMaterial({ color: 0xa96f42 })));
+    const dogHead = group.children[group.children.length - 1] as THREE.Mesh;
+    dogHead.position.set(dogX + 0.32, 0.45, z - 0.05);
+    const leash = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x + 0.17, 1.12, z), new THREE.Vector3(dogX + 0.15, 0.58, z - 0.04)]),
+      new THREE.LineBasicMaterial({ color: 0x303030 })
+    );
+    group.add(leash);
+  }
 }
 
 function addDistrictDetail(group: THREE.Group, district: number, width: number, depth: number, height: number, side: number) {
@@ -310,7 +379,39 @@ function createRoadsideBlock(index: number, side: number) {
     group.add(box(1.22, 0.13, 0.9, 0xe2b84d, stallX, 0.98, -depth / 2 - 0.62));
     group.add(cylinder(0.12, 0.22, 0xd9d4bd, stallX - 0.25, 1.16, -depth / 2 - 0.75, 8));
   }
+  if (index % 2 === 0) {
+    addPedestrian(group, side > 0 ? -width * 0.42 : width * 0.42, -depth / 2 - 0.75, index, index % 4 === 0);
+  }
   addDistrictDetail(group, district, width, depth, height, side);
+  return group;
+}
+
+function createBengaluruBackdrop(index: number, side: number) {
+  const group = new THREE.Group();
+  const width = 5.5 + (index % 3) * 1.2;
+  const height = 6.5 + (index % 4) * 1.8;
+  const depth = 6 + (index % 2) * 1.6;
+  const colors = [0x708d8d, 0xc68655, 0x9b755e, 0x80925e, 0x77759a];
+  group.add(box(width, height, depth, colors[index % colors.length], 0, height / 2, 0));
+  group.add(box(width + 0.18, 0.18, depth + 0.18, 0x47423c, 0, height + 0.08, 0));
+  for (let floor = 1; floor < Math.floor(height / 1.55); floor += 1) {
+    group.add(box(width * 0.62, 0.42, 0.05, 0xaed8dd, 0, floor * 1.45 + 0.28, -depth / 2 - 0.03));
+  }
+  const label = index % 4 === 0 ? 'TECH PARK' : index % 4 === 1 ? 'DARSHINI' : index % 4 === 2 ? 'FILTER COFFEE' : 'METRO';
+  const sign = streetSign(label, index % 2 ? '#355e70' : '#7e3f2c', Math.min(width * 0.72, 4.4));
+  sign.position.set(0, 1.65, -depth / 2 - 0.08);
+  group.add(sign);
+  if (index % 3 === 0) {
+    group.add(cylinder(0.48, 0.72, 0x24292a, width * 0.22, height + 0.48, 0));
+    group.add(cylinder(0.36, 0.08, 0x41494a, width * 0.22, height + 0.86, 0));
+  }
+  // A row of roadside trees fills the remaining verge with a Bengaluru-like
+  // leafy edge around the denser city forms.
+  const treeX = side > 0 ? -width * 0.48 : width * 0.48;
+  group.add(box(0.18, 2.2, 0.18, 0x67442b, treeX, 1.1, -depth / 2 - 1.15));
+  const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.96, 0), new THREE.MeshLambertMaterial({ color: 0x376e3f }));
+  crown.position.set(treeX, 2.6, -depth / 2 - 1.15);
+  group.add(crown);
   return group;
 }
 
@@ -393,6 +494,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
 
       const shoulderMaterial = new THREE.MeshLambertMaterial({ color: 0x69714d });
       const curbMaterial = new THREE.MeshLambertMaterial({ color: 0xe3d3a5 });
+      const sidewalkMaterial = new THREE.MeshLambertMaterial({ color: 0xc8baa1 });
       for (const side of [-1, 1]) {
         const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 260), shoulderMaterial);
         shoulder.rotation.x = -Math.PI / 2;
@@ -401,6 +503,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
         const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 260), curbMaterial);
         curb.position.set(side * 6.6, 0.08, -95);
         scene.add(curb);
+        const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 260), sidewalkMaterial);
+        sidewalk.rotation.x = -Math.PI / 2;
+        sidewalk.position.set(side * 9.1, 0.004, -95);
+        scene.add(sidewalk);
       }
 
       const vergeMaterial = new THREE.MeshLambertMaterial({ color: 0x527b3e });
@@ -446,6 +552,21 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           roadsideBlocks.push({ group, baseDistance: index * blockSpacing + (side > 0 ? blockSpacing / 2 : 0) });
         }
       }
+      // A second, taller city layer occupies the former empty grass field. It
+      // is intentionally set back behind the walkable pavement so the road is
+      // still readable and the player keeps a broad horizon.
+      const skylineBlocks: Array<{ group: THREE.Group; baseDistance: number }> = [];
+      const skylineSpacing = 26;
+      const skylineLoop = 13 * skylineSpacing;
+      for (const side of [-1, 1]) {
+        for (let index = 0; index < 13; index += 1) {
+          const group = createBengaluruBackdrop(index + (side > 0 ? 2 : 0), side);
+          group.position.x = side * (18.5 + (index % 2) * 1.5);
+          group.rotation.y = side > 0 ? -0.06 : 0.06;
+          scene.add(group);
+          skylineBlocks.push({ group, baseDistance: index * skylineSpacing + (side > 0 ? skylineSpacing / 2 : 0) });
+        }
+      }
       const roadsideProps: Array<{ group: THREE.Group; baseDistance: number }> = [];
       const propSpacing = 22;
       const propLoop = 18 * propSpacing;
@@ -474,6 +595,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
         const key = profile.playerId.toString();
         if (carMeshes.has(key)) return;
         const group = createPlayerVehicle(profile);
+        group.add(racerNameplate(profile.name, profile.isBot));
         group.position.set(initialX, 0, initialZ);
         scene.add(group);
         const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
@@ -581,6 +703,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const relativeDistance = ((block.baseDistance - myDistance) % blockLoop + blockLoop) % blockLoop;
           block.group.position.z = 18 - relativeDistance;
           block.group.visible = relativeDistance < 150;
+        }
+        for (const block of skylineBlocks) {
+          const relativeDistance = ((block.baseDistance - myDistance) % skylineLoop + skylineLoop) % skylineLoop;
+          block.group.position.z = 18 - relativeDistance;
+          block.group.visible = relativeDistance < 165;
         }
         for (const prop of roadsideProps) {
           const relativeDistance = ((prop.baseDistance - myDistance) % propLoop + propLoop) % propLoop;
