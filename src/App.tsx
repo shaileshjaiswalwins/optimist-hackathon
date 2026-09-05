@@ -3,11 +3,17 @@ import { useReducer, useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { reducers, tables } from './module_bindings';
 import { GameScene } from './GameScene';
 import { VehicleDebugPanel } from './VehicleDebugPanel';
+import { MiniMap } from './MiniMap';
+import { SteeringWheel } from './SteeringWheel';
+import { HitToasts, type Toast } from './HitToast';
+import { isMuted, setMuted } from './muteState';
 import './styles.css';
+
+const attackLabel = { auto: 'KICK', scooty: 'KICK', thar: 'RAM' } as const;
 
 const vehicles = [
   { id: 'auto', emoji: '🛺', label: 'Auto' },
-  { id: 'scooty', emoji: '🛵', label: 'Scooty' },
+  { id: 'scooty', emoji: '🛵', label: 'Activa 2G' },
   { id: 'thar', emoji: '🚙', label: 'Thar' },
 ] as const;
 
@@ -19,6 +25,7 @@ function App() {
   const startMatch = useReducer(reducers.startMatch);
   const setDrivingInput = useReducer(reducers.setDrivingInput);
   const ensureWaitingMatch = useReducer(reducers.ensureWaitingMatch);
+  const useAttack = useReducer(reducers.useAttack);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,6 +38,36 @@ function App() {
   const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('medium');
   const inputSeq = useRef(0);
   const driving = useRef({ steering: 0, throttle: 0, boost: false });
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const seenCollisionKeys = useRef(new Set<string>());
+  const seenAttackKeys = useRef(new Set<string>());
+  const attackCooldownUntil = useRef(0);
+  const [attackReady, setAttackReady] = useState(true);
+  const [muted, setMutedState] = useState(isMuted());
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [pingMs, setPingMs] = useState<number | null>(null);
+
+  const pushToast = (text: string, tone: Toast['tone']) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts(current => [...current, { id, text, tone }]);
+    window.setTimeout(() => setToasts(current => current.filter(toast => toast.id !== id)), 1500);
+  };
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement != null);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(console.error);
+    else document.documentElement.requestFullscreen().catch(console.error);
+  };
+
+  const toggleMute = () => {
+    setMuted(!muted);
+    setMutedState(!muted);
+  };
 
   const identityProfiles = profiles
     .filter(profile => profile.identity?.toHexString() === identity?.toHexString())
@@ -159,6 +196,68 @@ function App() {
     holdControl(control);
   }
 
+  const collisionSub = useTable(tables.collisionEvent.where(row => row.playerId.eq(myProfile?.playerId ?? 0n)), { enabled: currentMatch?.state === 'active' && myProfile !== undefined });
+  const attackTargetSub = useTable(tables.attackEvent.where(row => row.targetPlayerId.eq(myProfile?.playerId ?? 0n)), { enabled: currentMatch?.state === 'active' && myProfile !== undefined });
+  const attackLandedSub = useTable(tables.attackEvent.where(row => row.attackerPlayerId.eq(myProfile?.playerId ?? 0n)), { enabled: currentMatch?.state === 'active' && myProfile !== undefined });
+  const [myCollisions] = collisionSub;
+  const [attacksOnMe] = attackTargetSub;
+  const [attacksByMe] = attackLandedSub;
+  const nameOf = (playerId: bigint) => participants.find(profile => profile.playerId === playerId)?.name ?? 'a racer';
+
+  useEffect(() => {
+    for (const row of myCollisions) {
+      const key = `${row.obstacleId}-${row.createdAt.toMillis()}`;
+      if (seenCollisionKeys.current.has(key)) continue;
+      seenCollisionKeys.current.add(key);
+      pushToast(`HIT! -1 strike`, 'damage');
+    }
+  }, [myCollisions]);
+
+  useEffect(() => {
+    for (const row of attacksOnMe) {
+      const key = `on-${row.attackerPlayerId}-${row.createdAt.toMillis()}`;
+      if (seenAttackKeys.current.has(key)) continue;
+      seenAttackKeys.current.add(key);
+      pushToast(`${row.attackKind === 'ram' ? 'RAMMED' : 'KICKED'} by ${nameOf(row.attackerPlayerId)}!`, 'damage');
+    }
+  }, [attacksOnMe, participants]);
+
+  useEffect(() => {
+    for (const row of attacksByMe) {
+      const key = `by-${row.targetPlayerId}-${row.createdAt.toMillis()}`;
+      if (seenAttackKeys.current.has(key)) continue;
+      seenAttackKeys.current.add(key);
+      pushToast(`${row.attackKind === 'ram' ? 'RAMMED' : 'KICKED'} ${nameOf(row.targetPlayerId)}!`, 'landed');
+    }
+  }, [attacksByMe, participants]);
+
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    const measure = () => {
+      const start = performance.now();
+      ensureWaitingMatch().then(() => {
+        if (cancelled) return;
+        setPingMs(Math.round(performance.now() - start));
+      }).catch(() => {});
+    };
+    measure();
+    const timer = window.setInterval(measure, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [connected, ensureWaitingMatch]);
+
+  async function handleAttack() {
+    if (!myProfile || Date.now() < attackCooldownUntil.current) return;
+    attackCooldownUntil.current = Date.now() + 1200;
+    setAttackReady(false);
+    window.setTimeout(() => setAttackReady(true), 1200);
+    try {
+      await useAttack({ playerId: myProfile.playerId });
+    } catch {
+      // no target in range or on cooldown server-side — silent no-op
+    }
+  }
+
   if (myProfile && currentMatch?.state === 'active') {
     const myPosition = matchPositions.find(item => item.playerId === myProfile.playerId);
     const myVitals = matchVitals.find(item => item.playerId === myProfile.playerId);
@@ -171,6 +270,7 @@ function App() {
     return (
       <main className="game-page">
         <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} onReady={() => setSceneReady(true)} />
+        <MiniMap myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} vitals={matchVitals} fieldSize={currentMatch.maxSlots} />
         {new URLSearchParams(window.location.search).get('debugPhysics') === '1' && <VehicleDebugPanel />}
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
@@ -194,12 +294,16 @@ function App() {
           </select>
         </label>
         {myVitals?.eliminated && <div className="game-message"><h2>You’re out!</h2><p>Watch the race finish live.</p></div>}
+        <HitToasts toasts={toasts} />
+        <div className="hud-corner hud">
+          <button type="button" className="corner-btn" onClick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'}>{muted ? '🔇' : '🔊'}</button>
+          <button type="button" className="corner-btn" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>{isFullscreen ? '⤡' : '⤢'}</button>
+          <span className="ping-readout">{pingMs != null ? `${pingMs}ms` : '…'}</span>
+        </div>
         <div className="controls hud">
-          <div className="steering-controls">
-            <button type="button" onPointerDown={event => pressControl(event, { steering: -1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer left">←</button>
-            <button type="button" onPointerDown={event => pressControl(event, { steering: 1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer right">→</button>
-          </div>
+          <SteeringWheel onSteer={value => holdControl({ steering: value })} />
           <div className="speed-controls">
+            <button type="button" className="attack" disabled={!attackReady} onPointerDown={event => { event.preventDefault(); handleAttack(); }}>{attackLabel[myProfile.vehicleType as keyof typeof attackLabel] ?? 'KICK'}</button>
             <button type="button" className="boost" onPointerDown={event => pressControl(event, { boost: true })} onPointerUp={event => releaseControl(event, { boost: false })} onPointerCancel={event => releaseControl(event, { boost: false })}>BOOST</button>
             <button type="button" className="accelerate" onPointerDown={event => pressControl(event, { throttle: 1 })} onPointerUp={event => releaseControl(event, { throttle: 0 })} onPointerCancel={event => releaseControl(event, { throttle: 0 })}>RACE</button>
           </div>

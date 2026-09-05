@@ -6,7 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { CITY_ROUTE_LOOP, CITY_ROUTE_ZONES } from './cityLayout';
-import { vehicleTuning } from './vehiclePhysics';
+import { vehicleTuningFor } from './vehiclePhysics';
 
 const TRAFFIC_ASSETS = [
   '/assets/kenney/car-kit/sedan.glb',
@@ -15,6 +15,15 @@ const TRAFFIC_ASSETS = [
   '/assets/kenney/car-kit/ambulance.glb',
   '/assets/kenney/car-kit/truck.glb',
   '/assets/kenney/car-kit/police.glb',
+];
+
+// Only 3 pre-built Building_* variants ship in the Quaternius kit; the rest of
+// the folder is modular wall/roof/trim pieces meant for hand-assembly, which
+// is out of scope here. Space in "glTF (Godot)" must stay percent-encoded.
+const BUILDING_ASSETS = [
+  '/assets/quaternius/downtown-citymegakit/Exports/glTF%20(Godot)/Building_Small_1.gltf',
+  '/assets/quaternius/downtown-citymegakit/Exports/glTF%20(Godot)/Building_Medium_2_001.gltf',
+  '/assets/quaternius/downtown-citymegakit/Exports/glTF%20(Godot)/Building_Large_2.gltf',
 ];
 
 type Profile = {
@@ -298,7 +307,7 @@ function addDistrictDetail(group: THREE.Group, district: number, width: number, 
   }
 }
 
-function createRoadsideBlock(index: number, side: number) {
+function createRoadsideBlock(index: number, side: number, buildingTemplate?: THREE.Group) {
   const group = new THREE.Group();
   const palettes = [0xe6a15c, 0x75a6a4, 0xd87668, 0xd1b36a, 0x8c83a8, 0xb9c477];
   const awningPalettes = [0xc84636, 0x197c78, 0xe4a12f, 0x4d6094, 0x8c3940];
@@ -314,7 +323,10 @@ function createRoadsideBlock(index: number, side: number) {
   // rather than buildings placed directly on grass.
   group.add(box(width + 1.35, 0.18, depth + 1.1, 0xbcae91, 0, 0.06, 0.25));
   group.add(box(width + 1.5, 0.16, 0.24, index % 2 ? 0xf1ca54 : 0xf1eee0, 0, 0.12, -depth / 2 - 0.3));
-  group.add(box(width, height, depth, color, 0, height / 2, 0));
+  // A real glTF building replaces the flat box when its template loaded;
+  // fall back to the procedural box so a failed asset load never leaves a hole.
+  if (buildingTemplate) group.add(buildingTemplate.clone(true));
+  else group.add(box(width, height, depth, color, 0, height / 2, 0));
   group.add(box(width + 0.15, 0.18, depth + 0.15, 0x53493e, 0, height + 0.08, 0));
   group.add(box(width * 0.92, 0.44, 0.24, awningColor, 0, 1.18, -depth / 2 - 0.16));
   group.add(box(width * 0.62, 0.27, 0.09, 0x1e2a26, 0, 1.62, -depth / 2 - 0.29));
@@ -371,13 +383,14 @@ function createRoadsideBlock(index: number, side: number) {
   return group;
 }
 
-function createBengaluruBackdrop(index: number, side: number) {
+function createBengaluruBackdrop(index: number, side: number, buildingTemplate?: THREE.Group) {
   const group = new THREE.Group();
   const width = 5.5 + (index % 3) * 1.2;
   const height = 6.5 + (index % 4) * 1.8;
   const depth = 6 + (index % 2) * 1.6;
   const colors = [0x708d8d, 0xc68655, 0x9b755e, 0x80925e, 0x77759a];
-  group.add(box(width, height, depth, colors[index % colors.length], 0, height / 2, 0));
+  if (buildingTemplate) group.add(buildingTemplate.clone(true));
+  else group.add(box(width, height, depth, colors[index % colors.length], 0, height / 2, 0));
   group.add(box(width + 0.18, 0.18, depth + 0.18, 0x47423c, 0, height + 0.08, 0));
   for (let floor = 1; floor < Math.floor(height / 1.55); floor += 1) {
     group.add(box(width * 0.62, 0.42, 0.05, 0xaed8dd, 0, floor * 1.45 + 0.28, -depth / 2 - 0.03));
@@ -523,15 +536,100 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       }));
       if (disposed) return;
 
-      const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x343b3e, roughness: 0.76, metalness: 0.02 });
+      // Skip glTF building loads on low quality entirely — the cheap procedural
+      // boxes cost nothing and 78 roadside/skyline slots is a lot of clones to
+      // shade on a mobile GPU already trimmed down elsewhere.
+      const rawBuildingScenes = quality === 'low' ? [] : await Promise.all(BUILDING_ASSETS.map(async url => {
+        try {
+          const asset = await assetLoader.loadAsync(url);
+          return asset.scene;
+        } catch (error) {
+          console.warn(`Could not load building asset ${url}; using fallback model.`, error);
+          return undefined;
+        }
+      }));
+      if (disposed) return;
+      // Near-field (roadside) buildings stay shorter than far-field (skyline)
+      // ones so the two layers keep their existing depth cue.
+      const nearHeights = [4.5, 6.5, 8.5];
+      const farHeights = [11, 15, 20];
+      const buildingTemplatesNear = rawBuildingScenes
+        .map((scene, i) => (scene ? normalizeAsset(scene, nearHeights[i % nearHeights.length], true) : undefined))
+        .filter((t): t is THREE.Group => !!t);
+      const buildingTemplatesFar = rawBuildingScenes
+        .map((scene, i) => (scene ? normalizeAsset(scene, farHeights[i % farHeights.length], true) : undefined))
+        .filter((t): t is THREE.Group => !!t);
+
+      // Asphalt has only a BaseColor in this pack; concrete's Normal/ORM are a
+      // close enough grey road-material match and add real surface detail.
+      const textureLoader = new THREE.TextureLoader();
+      const roadColorMap = textureLoader.load('/assets/quaternius/downtown-citymegakit/Textures/T_Concrete_Asphalt_BaseColor.png');
+      const roadNormalMap = textureLoader.load('/assets/quaternius/downtown-citymegakit/Textures/T_Concrete_Normal.png');
+      const roadOrmMap = textureLoader.load('/assets/quaternius/downtown-citymegakit/Textures/T_Concrete_ORM.png');
+      // Road plane is 13 wide x 260 long; ~2.6 units per tile keeps the
+      // asphalt grain from looking stretched at chase-cam distance.
+      for (const map of [roadColorMap, roadNormalMap, roadOrmMap]) {
+        map.wrapS = map.wrapT = THREE.RepeatWrapping;
+        map.repeat.set(5, 100);
+      }
+      roadColorMap.colorSpace = THREE.SRGBColorSpace;
+      const roadMaterial = new THREE.MeshStandardMaterial({
+        map: roadColorMap,
+        normalMap: roadNormalMap,
+        aoMap: roadOrmMap,
+        roughnessMap: roadOrmMap,
+        metalnessMap: roadOrmMap,
+        color: 0x343b3e,
+        roughness: 0.76,
+        metalness: 0.02,
+      });
       const road = new THREE.Mesh(
-        new THREE.PlaneGeometry(13, 260),
+        new THREE.PlaneGeometry(13, 260, 1, 1),
         roadMaterial
       );
+      // aoMap needs a second UV channel; reuse uv since the ORM texture is
+      // tiled identically to the color map.
+      road.geometry.setAttribute('uv2', road.geometry.attributes.uv);
       road.rotation.x = -Math.PI / 2;
       road.position.z = -95;
       road.receiveShadow = quality !== 'low';
       scene.add(road);
+
+      // Sparse dark pothole decals, generated at runtime so no extra asset
+      // files are needed. A radial gradient reads as a shallow depression
+      // with a faint rim highlight at chase-cam distance.
+      const potholeCanvas = document.createElement('canvas');
+      potholeCanvas.width = potholeCanvas.height = 128;
+      const potholeContext = potholeCanvas.getContext('2d')!;
+      const potholeGradient = potholeContext.createRadialGradient(64, 64, 6, 64, 64, 62);
+      potholeGradient.addColorStop(0, 'rgba(10,10,10,0.92)');
+      potholeGradient.addColorStop(0.68, 'rgba(18,18,18,0.75)');
+      potholeGradient.addColorStop(0.82, 'rgba(90,84,72,0.35)');
+      potholeGradient.addColorStop(1, 'rgba(90,84,72,0)');
+      potholeContext.fillStyle = potholeGradient;
+      potholeContext.fillRect(0, 0, 128, 128);
+      const potholeTexture = new THREE.CanvasTexture(potholeCanvas);
+      potholeTexture.colorSpace = THREE.SRGBColorSpace;
+      const potholeMaterial = new THREE.MeshBasicMaterial({ map: potholeTexture, transparent: true, depthWrite: false });
+      const potholes: Array<{ mesh: THREE.Mesh; baseZ: number }> = [];
+      if (quality !== 'low') {
+        // One every ~15-25m per lane band, deterministic so it doesn't
+        // jitter between renders; skipped entirely on low quality.
+        const laneXs = [-3.2, -1.6, 0, 1.6, 3.2];
+        let seed = 0;
+        for (let z = -205; z < 20; z += 18) {
+          seed += 1;
+          if (seed % 3 === 0) continue; // keep them sparse, not on every band
+          const x = laneXs[seed % laneXs.length];
+          const size = 0.9 + (seed % 3) * 0.25;
+          const pothole = new THREE.Mesh(new THREE.PlaneGeometry(size, size), potholeMaterial);
+          pothole.rotation.x = -Math.PI / 2;
+          pothole.rotation.z = seed * 0.6;
+          pothole.position.set(x, 0.014, z);
+          scene.add(pothole);
+          potholes.push({ mesh: pothole, baseZ: z });
+        }
+      }
 
       const rainDrops = 220;
       const rainPositions = new Float32Array(rainDrops * 6);
@@ -586,6 +684,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         hemi.intensity = settings.hemi * (rainy ? 0.68 : 1);
         hemi.color.setHex(settings.sky);
         sunDisk.visible = true;
+        // Textured material now carries the base grey via its map; weather
+        // still darkens/lightens it by tinting on top of that texture.
         roadMaterial.color.setHex(rainy ? 0x202a30 : 0x343b3e);
         roadMaterial.roughness = rainy ? 0.24 : 0.76;
         roadMaterial.metalness = rainy ? 0.28 : 0.02;
@@ -675,7 +775,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const blockLoop = 26 * blockSpacing;
       for (const side of [-1, 1]) {
         for (let index = 0; index < 26; index += 1) {
-          const group = createRoadsideBlock(index + (side > 0 ? 3 : 0), side);
+          const roadsideIndex = index + (side > 0 ? 3 : 0);
+          const roadsideTemplate = buildingTemplatesNear.length
+            ? buildingTemplatesNear[roadsideIndex % buildingTemplatesNear.length]
+            : undefined;
+          const group = createRoadsideBlock(roadsideIndex, side, roadsideTemplate);
           group.position.x = side * (13.1 + (index % 3) * 0.7);
           group.rotation.y = side > 0 ? -0.035 : 0.035;
           scene.add(group);
@@ -690,7 +794,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const skylineLoop = 13 * skylineSpacing;
       for (const side of [-1, 1]) {
         for (let index = 0; index < 13; index += 1) {
-          const group = createBengaluruBackdrop(index + (side > 0 ? 2 : 0), side);
+          const skylineIndex = index + (side > 0 ? 2 : 0);
+          const skylineTemplate = buildingTemplatesFar.length
+            ? buildingTemplatesFar[skylineIndex % buildingTemplatesFar.length]
+            : undefined;
+          const group = createBengaluruBackdrop(skylineIndex, side, skylineTemplate);
           group.position.x = side * (18.5 + (index % 2) * 1.5);
           group.rotation.y = side > 0 ? -0.06 : 0.06;
           scene.add(group);
@@ -709,6 +817,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       let physicsAccumulator = 0;
       const fixedPhysicsStep = 1 / 60;
       let lastMass = -1;
+      // The player's own vehicle type never changes mid-race, but it isn't
+      // known until profiles arrive over the subscription, so this is read
+      // fresh each frame rather than captured once at setup time.
+      const myTuning = () => vehicleTuningFor(profilesRef.current.find(p => p.playerId === myPlayerId)?.vehicleType ?? 'auto');
       let previousPhysicsX = 0;
       let previousPhysicsZ = 0;
       let currentPhysicsX = 0;
@@ -718,16 +830,18 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const configureWheel = (wheel: number) => {
         const vehicle = localVehicle;
         if (!vehicle) return;
-        vehicle.setWheelSuspensionStiffness(wheel, vehicleTuning.suspensionStiffness);
-        vehicle.setWheelSuspensionCompression(wheel, vehicleTuning.suspensionCompression);
-        vehicle.setWheelSuspensionRelaxation(wheel, vehicleTuning.suspensionRelaxation);
-        vehicle.setWheelMaxSuspensionForce(wheel, vehicleTuning.suspensionMaxForce);
-        vehicle.setWheelFrictionSlip(wheel, vehicleTuning.tireGrip);
-        vehicle.setWheelSideFrictionStiffness(wheel, vehicleTuning.sideFriction);
+        const tuning = myTuning();
+        vehicle.setWheelSuspensionStiffness(wheel, tuning.suspensionStiffness);
+        vehicle.setWheelSuspensionCompression(wheel, tuning.suspensionCompression);
+        vehicle.setWheelSuspensionRelaxation(wheel, tuning.suspensionRelaxation);
+        vehicle.setWheelMaxSuspensionForce(wheel, tuning.suspensionMaxForce);
+        vehicle.setWheelFrictionSlip(wheel, tuning.tireGrip);
+        vehicle.setWheelSideFrictionStiffness(wheel, tuning.sideFriction);
       };
 
       const ensureLocalDriveBody = (x: number, distance: number) => {
         if (localDriveBody) return localDriveBody;
+        const tuning = myTuning();
         localDriveBody = world.createRigidBody(
           RAPIER.RigidBodyDesc.dynamic()
             .setTranslation(x, 0.72, -distance)
@@ -738,8 +852,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         // A compact hatchback chassis with its center of mass lifted enough
         // for visible roll and brake dive, while still remaining controllable.
         world.createCollider(RAPIER.ColliderDesc.cuboid(0.62, 0.22, 1.05).setTranslation(0, 0.1, 0), localDriveBody);
-        localDriveBody.setAdditionalMass(vehicleTuning.massKg, true);
-        lastMass = vehicleTuning.massKg;
+        localDriveBody.setAdditionalMass(tuning.massKg, true);
+        lastMass = tuning.massKg;
         localVehicle = world.createVehicleController(localDriveBody);
         localVehicle.indexUpAxis = 1;
         // Rapier's generated types name this setter incorrectly. The runtime
@@ -750,7 +864,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           { x: -0.53, y: 0.08, z: 0.78 }, { x: 0.53, y: 0.08, z: 0.78 },
         ];
         for (const point of wheelPoints) {
-          localVehicle.addWheel(point, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, vehicleTuning.suspensionRestLength, 0.28);
+          localVehicle.addWheel(point, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, tuning.suspensionRestLength, 0.28);
           configureWheel(localVehicle.numWheels() - 1);
         }
         previousPhysicsX = currentPhysicsX = x;
@@ -760,17 +874,18 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
 
       const stepLocalVehicle = () => {
         if (!localDriveBody || !localVehicle) return;
-        if (lastMass !== vehicleTuning.massKg) {
-          localDriveBody.setAdditionalMass(vehicleTuning.massKg, true);
-          lastMass = vehicleTuning.massKg;
+        const tuning = myTuning();
+        if (lastMass !== tuning.massKg) {
+          localDriveBody.setAdditionalMass(tuning.massKg, true);
+          lastMass = tuning.massKg;
         }
         const speedKmh = Math.abs(localVehicle.currentVehicleSpeed()) * 3.6;
-        const steeringScale = THREE.MathUtils.lerp(1, vehicleTuning.highSpeedSteeringFactor, Math.min(speedKmh / vehicleTuning.topSpeedKmh, 1));
-        const steering = input.current.steering * vehicleTuning.maxSteeringAngle * steeringScale;
-        const engine = input.current.throttle && speedKmh < vehicleTuning.topSpeedKmh
-          ? -vehicleTuning.engineForce * (input.current.boost ? 1.16 : 1)
+        const steeringScale = THREE.MathUtils.lerp(1, tuning.highSpeedSteeringFactor, Math.min(speedKmh / tuning.topSpeedKmh, 1));
+        const steering = input.current.steering * tuning.maxSteeringAngle * steeringScale;
+        const engine = input.current.throttle && speedKmh < tuning.topSpeedKmh
+          ? -tuning.engineForce * (input.current.boost ? 1.16 : 1)
           : 0;
-        const brake = input.current.throttle ? 0 : vehicleTuning.brakeForce * 0.18;
+        const brake = input.current.throttle ? 0 : tuning.brakeForce * 0.18;
         for (let wheel = 0; wheel < 4; wheel += 1) {
           configureWheel(wheel);
           localVehicle.setWheelSteering(wheel, wheel < 2 ? steering : 0);
@@ -936,6 +1051,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         metro.position.z = 18 - routeOffset;
         for (const detail of roadDetails) {
           detail.mesh.position.z = ((detail.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
+        }
+        for (const pothole of potholes) {
+          pothole.mesh.position.z = ((pothole.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
         }
         for (const block of roadsideBlocks) {
           const relativeDistance = ((block.baseDistance - myDistance) % blockLoop + blockLoop) % blockLoop;

@@ -11,14 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  playerId: __t.u64().primaryKey().name("player_id"),
-  matchId: __t.u64().name("match_id"),
-  x: __t.f32(),
-  distance: __t.f32(),
-  speed: __t.f32(),
-  steering: __t.f32(),
-  throttle: __t.f32(),
-  boost: __t.bool(),
-  inputSeq: __t.u32().name("input_seq"),
-  lastAttackTick: __t.u64().name("last_attack_tick"),
+  attackerPlayerId: __t.u64().name("attacker_player_id"),
+  targetPlayerId: __t.u64().name("target_player_id"),
+  attackKind: __t.string().name("attack_kind"),
+  strikesRemaining: __t.u8().name("strikes_remaining"),
+  createdAt: __t.timestamp().name("created_at"),
 });

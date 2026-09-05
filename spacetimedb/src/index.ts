@@ -49,6 +49,17 @@ const player_position = table({ name: 'player_position', public: true }, {
   throttle: t.f32(),
   boost: t.bool(),
   input_seq: t.u32(),
+  last_attack_tick: t.u64(),
+});
+
+// One-shot notifications so clients can pop up "you got kicked" style toasts
+// without polling collision_event, which is shared with obstacle hits.
+const attack_event = table({ name: 'attack_event', public: true, event: true }, {
+  attacker_player_id: t.u64(),
+  target_player_id: t.u64(),
+  attack_kind: t.string(),
+  strikes_remaining: t.u8(),
+  created_at: t.timestamp(),
 });
 
 const obstacle = table({ name: 'obstacle', public: true }, {
@@ -84,6 +95,7 @@ const spacetimedb = schema({
   player_position,
   obstacle,
   collision_event,
+  attack_event,
   game_tick_schedule,
 });
 export default spacetimedb;
@@ -93,11 +105,40 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOT_NAMES = ['Rex', 'Kaka', 'Bijli', 'Maya'];
 const BOT_VEHICLES = ['thar', 'auto', 'scooty', 'auto'];
 const MAX_PLAYERS = 30;
-const VEHICLE_DYNAMICS: Record<string, { topSpeed: number; acceleration: number; coastDeceleration: number }> = {
-  auto: { topSpeed: 17.5, acceleration: 3.4, coastDeceleration: 0.9 },
-  scooty: { topSpeed: 20, acceleration: 3.8, coastDeceleration: 0.75 },
-  thar: { topSpeed: 24, acceleration: 4.2, coastDeceleration: 1.05 },
+// A solo player should never wait for other humans. Bots top the field up to
+// this size and back off entirely once enough humans have joined.
+const MIN_FIELD_SIZE = 4;
+const MAX_BOTS = MIN_FIELD_SIZE - 1;
+
+// Single source of truth for vehicle feel. The client's local Rapier tuning
+// (src/vehiclePhysics.ts) mirrors these numbers per vehicle so prediction
+// doesn't fight the authoritative server result. Keep both in sync by hand.
+type AttackKind = 'kick' | 'ram';
+const VEHICLE_DYNAMICS: Record<string, {
+  topSpeed: number; acceleration: number; coastDeceleration: number;
+  attack: AttackKind; attackRange: number; attackCooldownTicks: number;
+}> = {
+  auto: { topSpeed: 17.5, acceleration: 3.4, coastDeceleration: 0.9, attack: 'kick', attackRange: 2.2, attackCooldownTicks: 30 },
+  scooty: { topSpeed: 20, acceleration: 3.8, coastDeceleration: 0.75, attack: 'kick', attackRange: 2.2, attackCooldownTicks: 30 },
+  thar: { topSpeed: 24, acceleration: 4.2, coastDeceleration: 1.05, attack: 'ram', attackRange: 3.5, attackCooldownTicks: 50 },
 };
+const LANE_WIDTH = 3.2;
+const MIN_LANES = 3;
+const MAX_LANES = 7;
+
+// The road widens as the field grows so extra racers always have room:
+// one additional lane for every five racers, capped so it stays drivable.
+function laneCountFor(fieldSize: number): number {
+  return Math.min(MAX_LANES, MIN_LANES + Math.floor(fieldSize / 5));
+}
+
+function laneCenters(laneCount: number): number[] {
+  const centers: number[] = [];
+  const span = (laneCount - 1) / 2;
+  for (let index = 0; index < laneCount; index += 1) centers.push((index - span) * LANE_WIDTH);
+  return centers;
+}
+
 // A round must always resolve at a live event. At 20 ticks per second this is
 // two and a half minutes, giving players ample time to race while preventing
 // an abandoned browser tab from keeping a match active forever.
@@ -148,7 +189,7 @@ export const joinMatch = spacetimedb.reducer({
   if (cleanName.length < 2 || cleanName.length > 30) throw new SenderError('Name must be between 2 and 30 characters.');
   if (!EMAIL_PATTERN.test(cleanEmail)) throw new SenderError('Enter a valid email address.');
   if (!consent_given) throw new SenderError('Consent is required to join this event.');
-  if (!VALID_VEHICLES.has(vehicle_type)) throw new SenderError('Choose auto, scooty, or Thar.');
+  if (!VALID_VEHICLES.has(vehicle_type)) throw new SenderError('Choose Auto, Activa 2G, or Thar.');
 
   const selectedMatch = ctx.db.match.match_id.find(match_id);
   if (!selectedMatch || selectedMatch.state !== 'waiting') throw new SenderError('This match is no longer accepting players.');
@@ -170,7 +211,10 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   const humans = [...ctx.db.player_profile.match_id.filter(match_id)];
   if (!humans.some(player => player.identity?.equals(ctx.sender))) throw new SenderError('Join the match before starting it.');
 
-  for (let index = humans.length; index < selectedMatch.max_slots; index += 1) {
+  // Bots only top the field up to MIN_FIELD_SIZE. A lobby that already has
+  // enough humans races human-only; a solo player still gets a full grid.
+  const botsNeeded = Math.min(MAX_BOTS, Math.max(0, MIN_FIELD_SIZE - humans.length));
+  for (let index = 0; index < botsNeeded; index += 1) {
     const profile = ctx.db.player_profile.insert({
       player_id: 0n, match_id, identity: undefined,
       name: `${BOT_NAMES[index % BOT_NAMES.length]} ${index + 1}`,
@@ -181,7 +225,7 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   }
 
   const racers = [...ctx.db.player_profile.match_id.filter(match_id)];
-  const startingLanes = [-3.2, 0, 3.2];
+  const startingLanes = laneCenters(laneCountFor(racers.length));
   racers.forEach((racer, index) => {
     const gridSpot = {
       x: startingLanes[index % startingLanes.length],
@@ -194,7 +238,7 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
       x: gridSpot.x, distance: gridSpot.distance,
       speed: 0,
       steering: 0, throttle: racer.is_bot ? 0.72 : 0,
-      boost: false, input_seq: 0,
+      boost: false, input_seq: 0, last_attack_tick: 0n,
     });
   });
 
@@ -229,11 +273,56 @@ export const setDrivingInput = spacetimedb.reducer({
   ctx.db.player_position.player_id.update({ ...position, steering, throttle, boost, input_seq });
 });
 
+export const useAttack = spacetimedb.reducer({ player_id: t.u64() }, (ctx, { player_id }) => {
+  const profile = ctx.db.player_profile.player_id.find(player_id);
+  const position = ctx.db.player_position.player_id.find(player_id);
+  const vitals = ctx.db.player_vitals.player_id.find(player_id);
+  if (!profile?.identity?.equals(ctx.sender) || !position || !vitals) throw new SenderError('You cannot control this racer.');
+  if (vitals.eliminated) throw new SenderError('Eliminated racers cannot attack.');
+
+  const selectedMatch = ctx.db.match.match_id.find(profile.match_id);
+  if (!selectedMatch || selectedMatch.state !== 'active') throw new SenderError('The race has not started.');
+  const dynamics = VEHICLE_DYNAMICS[profile.vehicle_type] ?? VEHICLE_DYNAMICS.auto;
+  if (selectedMatch.tick_count - position.last_attack_tick < BigInt(dynamics.attackCooldownTicks)) {
+    throw new SenderError('Attack is still on cooldown.');
+  }
+
+  // Nearest live racer ahead, in a neighboring lane or the same one, within range.
+  const target = [...ctx.db.player_position.match_id.filter(profile.match_id)]
+    .filter(candidate => candidate.player_id !== player_id)
+    .filter(candidate => !ctx.db.player_vitals.player_id.find(candidate.player_id)?.eliminated)
+    .filter(candidate => Math.abs(candidate.x - position.x) < 1.9)
+    .filter(candidate => candidate.distance > position.distance && candidate.distance - position.distance <= dynamics.attackRange)
+    .sort((a, b) => a.distance - b.distance)[0];
+  if (!target) throw new SenderError('No racer in range.');
+
+  const targetVitals = ctx.db.player_vitals.player_id.find(target.player_id)!;
+  const strikes = Math.max(0, targetVitals.strikes_remaining - 1);
+  const eliminated = strikes === 0;
+  const racersAlive = [...ctx.db.player_vitals.match_id.filter(profile.match_id)].filter(row => !row.eliminated).length;
+  ctx.db.player_vitals.player_id.update({
+    ...targetVitals, strikes_remaining: strikes, eliminated,
+    rank: eliminated ? racersAlive : targetVitals.rank,
+  });
+  ctx.db.player_position.player_id.update({ ...position, last_attack_tick: selectedMatch.tick_count });
+  ctx.db.attack_event.insert({
+    attacker_player_id: player_id, target_player_id: target.player_id,
+    attack_kind: dynamics.attack, strikes_remaining: strikes, created_at: ctx.timestamp,
+  });
+});
+
 export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType }, (ctx, { timer }) => {
   const selectedMatch = ctx.db.match.match_id.find(timer.match_id);
   if (!selectedMatch || selectedMatch.state !== 'active') return;
   const nextTick = selectedMatch.tick_count + 1n;
   const profiles = [...ctx.db.player_profile.match_id.filter(timer.match_id)];
+  const lanes = laneCenters(laneCountFor(profiles.length));
+  const roadHalfWidth = (lanes.length - 1) / 2 * LANE_WIDTH + 1.45;
+  const activeObstaclesNow = [...ctx.db.obstacle.match_id.filter(timer.match_id)].filter(row => row.active);
+  // Bots get sharper over the first ~40s of a round (from "notices traffic
+  // late" to "reads the road well ahead") but are capped short of perfect
+  // play, and always keep a chance to misjudge, so they stay beatable.
+  const botSkill = Math.min(0.82, 0.2 + Number(nextTick) / 800);
 
   for (const profile of profiles) {
     const vitals = ctx.db.player_vitals.player_id.find(profile.player_id);
@@ -241,9 +330,24 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     if (!vitals || !position || vitals.eliminated) continue;
     let steering = position.steering;
     if (profile.is_bot) {
-      if (Math.abs(position.x) > 3.9) steering = position.x > 0 ? -1 : 1;
-      else if (nextTick % 30n === 0n) steering = ctx.random.integerInRange(-1, 1);
-      else if (nextTick % 30n === 8n) steering = 0;
+      const lookahead = 10 + botSkill * 12;
+      const hazardAhead = activeObstaclesNow.find(row =>
+        Math.abs(row.x - position.x) < 1.9
+        && row.distance > position.distance
+        && row.distance - position.distance < lookahead);
+      if (Math.abs(position.x) > roadHalfWidth - 0.75) {
+        steering = position.x > 0 ? -1 : 1;
+      } else if (hazardAhead && ctx.random.integerInRange(0, 99) < botSkill * 100) {
+        // Swerve toward the nearest lane that is clear across the same window.
+        const clearLane = lanes
+          .filter(x => !activeObstaclesNow.some(row => Math.abs(row.x - x) < 1.9 && row.distance > position.distance && row.distance - position.distance < lookahead))
+          .sort((a, b) => Math.abs(a - position.x) - Math.abs(b - position.x))[0];
+        steering = clearLane === undefined ? (position.x > 0 ? -1 : 1) : Math.sign(clearLane - position.x) || 0;
+      } else if (nextTick % 30n === 0n) {
+        steering = ctx.random.integerInRange(-1, 1);
+      } else if (nextTick % 30n === 8n) {
+        steering = 0;
+      }
     }
     const dynamics = VEHICLE_DYNAMICS[profile.vehicle_type] ?? VEHICLE_DYNAMICS.auto;
     const topSpeed = dynamics.topSpeed * (position.boost ? 1.12 : 1);
@@ -253,7 +357,7 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
       : -dynamics.coastDeceleration;
     const speed = Math.max(0, Math.min(topSpeed, position.speed + acceleration * 0.05));
     const lateralSpeed = Math.min(4.2, speed * 0.18);
-    const x = Math.max(-4.65, Math.min(4.65, position.x + steering * lateralSpeed * 0.05));
+    const x = Math.max(-roadHalfWidth, Math.min(roadHalfWidth, position.x + steering * lateralSpeed * 0.05));
     const distance = position.distance + speed * 0.05;
     ctx.db.player_position.player_id.update({ ...position, x, speed, steering, distance });
     ctx.db.player_vitals.player_id.update({ ...vitals, score: Math.max(vitals.score, Math.floor(distance)) });
@@ -288,9 +392,8 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
   if (nextTick % obstacleInterval === 0n) {
     const lead = Math.max(0, ...[...ctx.db.player_position.match_id.filter(timer.match_id)].map(row => row.distance));
     const spawnDistance = lead + 100;
-    const lanes = [-3.2, 0, 3.2];
     const laneOffset = ctx.random.integerInRange(0, lanes.length - 1);
-    const activeObstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)].filter(row => row.active);
+    const activeObstacles = activeObstaclesNow;
     const blockedLaneCount = lanes.filter(x => activeObstacles.some(
       row => Math.abs(row.x - x) < 1.9 && Math.abs(row.distance - spawnDistance) < 20
     )).length;
@@ -298,7 +401,7 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
       .map((_, index) => lanes[(index + laneOffset) % lanes.length])
       .filter(x => !activeObstacles.some(row => Math.abs(row.x - x) < 1.9 && Math.abs(row.distance - spawnDistance) < 20));
     const desiredSpawnCount = profiles.length >= 10 ? 2 : 1;
-    const spawnCount = Math.min(desiredSpawnCount, openLanes.length, Math.max(0, 2 - blockedLaneCount));
+    const spawnCount = Math.min(desiredSpawnCount, openLanes.length, Math.max(0, lanes.length - 1 - blockedLaneCount));
     for (let index = 0; index < spawnCount; index += 1) {
       ctx.db.obstacle.insert({
         obstacle_id: 0n, match_id: timer.match_id,

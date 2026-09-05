@@ -10,6 +10,15 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const AttackEvent = __t.object("AttackEvent", {
+  attackerPlayerId: __t.u64(),
+  targetPlayerId: __t.u64(),
+  attackKind: __t.string(),
+  strikesRemaining: __t.u8(),
+  createdAt: __t.timestamp(),
+});
+export type AttackEvent = __Infer<typeof AttackEvent>;
+
 export const CollisionEvent = __t.object("CollisionEvent", {
   playerId: __t.u64(),
   obstacleId: __t.u64(),
@@ -65,6 +74,7 @@ export const PlayerPosition = __t.object("PlayerPosition", {
   throttle: __t.f32(),
   boost: __t.bool(),
   inputSeq: __t.u32(),
+  lastAttackTick: __t.u64(),
 });
 export type PlayerPosition = __Infer<typeof PlayerPosition>;
 

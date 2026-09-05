@@ -73,6 +73,23 @@ legend { margin-bottom:10px; }
 .controls button:active { transform:scale(.94); filter:brightness(1.08); }
 .controls .boost { width:82px; height:82px; border-color:#ffbd42; color:#171208; background:#ffbd42; font-size:13px; }
 .controls .accelerate { width:96px; height:96px; border-color:#70e483; color:#102012; background:#70e483; font-size:15px; }
+.controls .attack { width:64px; height:64px; border-color:#ff5d5d; color:#fff; background:rgba(255,93,93,.85); font-size:12px; }
+.controls .attack:disabled { opacity:.4; }
+.steering-wheel-mount { touch-action:none; }
+.steering-wheel { width:120px; height:120px; touch-action:none; cursor:grab; }
+.steering-wheel-ring { position:relative; width:100%; height:100%; border:6px solid rgba(255,255,255,.7); border-radius:50%; background:rgba(8,15,10,.55); backdrop-filter:blur(8px); }
+.steering-wheel-spoke { position:absolute; background:rgba(255,255,255,.7); }
+.steering-wheel-spoke-v { top:0; bottom:0; left:50%; width:6px; transform:translateX(-50%); }
+.steering-wheel-spoke-h { left:0; right:0; top:50%; height:6px; transform:translateY(-50%); }
+.steering-wheel-hub { position:absolute; inset:38%; border-radius:50%; background:#ffbd42; }
+.hit-toasts { position:fixed; z-index:9; top:32%; left:50%; transform:translateX(-50%); display:grid; justify-items:center; gap:6px; pointer-events:none; }
+.hit-toast { padding:8px 20px; border-radius:12px; font-family:'Archivo Black',sans-serif; font-size:clamp(18px,4vw,28px); letter-spacing:.03em; text-transform:uppercase; text-shadow:0 3px 10px rgba(0,0,0,.6); animation:hit-pop 1.5s ease-out forwards; }
+.hit-toast-damage { color:#ff5d5d; }
+.hit-toast-landed { color:#ffd76a; }
+@keyframes hit-pop { 0% { opacity:0; transform:scale(.6); } 12% { opacity:1; transform:scale(1.12); } 25% { transform:scale(1); } 80% { opacity:1; } 100% { opacity:0; transform:scale(.92); } }
+.hud-corner { top:max(14px,env(safe-area-inset-top)); right:max(14px,env(safe-area-inset-right)); display:flex; align-items:center; gap:8px; }
+.corner-btn { width:34px; height:34px; padding:0; border:1px solid rgba(255,255,255,.4); border-radius:50%; color:#fff; background:rgba(8,15,10,.62); font-size:16px; line-height:1; cursor:pointer; }
+.ping-readout { padding:4px 8px; border-radius:8px; background:rgba(8,15,10,.62); font-size:11px; font-variant-numeric:tabular-nums; }
 .game-message { position:fixed; z-index:8; inset:0; display:grid; place-content:center; text-align:center; background:rgba(10,14,9,.72); color:#fff; }
 .game-message h2 { margin:0; font-family:'Archivo Black',sans-serif; font-size:clamp(48px,12vw,100px); text-transform:uppercase; }
 .result-page { min-height:100vh; min-height:100dvh; display:grid; place-items:center; padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left)); }
@@ -102,6 +119,9 @@ legend { margin-bottom:10px; }
   .controls button { width:58px; height:58px; font-size:28px; }
   .controls .boost { width:62px; height:62px; font-size:10px; }
   .controls .accelerate { width:72px; height:72px; font-size:12px; }
+  .controls .attack { width:50px; height:50px; font-size:10px; }
+  .steering-wheel { width:92px; height:92px; }
+  .corner-btn { width:30px; height:30px; font-size:14px; }
 }
 @media (max-width:390px) {
   .page { padding-left:max(14px,env(safe-area-inset-left)); padding-right:max(14px,env(safe-area-inset-right)); }
@@ -117,4 +137,10 @@ legend { margin-bottom:10px; }
   .controls button { width:52px; height:52px; font-size:25px; }
   .controls .boost { width:56px; height:56px; font-size:9px; }
   .controls .accelerate { width:64px; height:64px; font-size:11px; }
+  .controls .attack { width:46px; height:46px; font-size:9px; }
+  .steering-wheel { width:78px; height:78px; }
+  .hud-corner { top:max(6px,env(safe-area-inset-top)); right:max(6px,env(safe-area-inset-right)); gap:5px; }
+  .corner-btn { width:26px; height:26px; font-size:12px; }
+  .ping-readout { padding:2px 6px; font-size:9px; }
+  .hit-toasts { top:20%; }
 }

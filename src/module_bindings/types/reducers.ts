@@ -10,9 +10,11 @@ import EnsureWaitingMatchReducer from "../ensure_waiting_match_reducer";
 import JoinMatchReducer from "../join_match_reducer";
 import SetDrivingInputReducer from "../set_driving_input_reducer";
 import StartMatchReducer from "../start_match_reducer";
+import UseAttackReducer from "../use_attack_reducer";
 
 export type EnsureWaitingMatchParams = __Infer<typeof EnsureWaitingMatchReducer>;
 export type JoinMatchParams = __Infer<typeof JoinMatchReducer>;
 export type SetDrivingInputParams = __Infer<typeof SetDrivingInputReducer>;
 export type StartMatchParams = __Infer<typeof StartMatchReducer>;
+export type UseAttackParams = __Infer<typeof UseAttackReducer>;
 
