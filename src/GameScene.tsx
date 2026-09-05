@@ -821,6 +821,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       let previous = performance.now();
       let predictedX: number | undefined;
       let predictedDistance: number | undefined;
+      const positionsByPlayer = new Map<bigint, Position>();
       let firstFrameRendered = false;
       const render = (now: number) => {
         if (disposed || !renderer) return;
@@ -874,7 +875,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           rain.position.z = camera.position.z - 55;
         }
 
-        const positionsByPlayer = new Map(positionsRef.current.map(position => [position.playerId, position]));
+        positionsByPlayer.clear();
+        for (const position of positionsRef.current) positionsByPlayer.set(position.playerId, position);
         for (const profile of profilesRef.current) {
           const position = positionsByPlayer.get(profile.playerId);
           if (!position) continue;

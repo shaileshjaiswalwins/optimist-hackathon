@@ -15,12 +15,10 @@ function App() {
   const { identity, isActive: connected } = useSpacetimeDB();
   const [matches] = useTable(tables.match);
   const [profiles] = useTable(tables.playerProfile);
-  const [vitals] = useTable(tables.playerVitals);
-  const [positions] = useTable(tables.playerPosition);
-  const [obstacles] = useTable(tables.obstacle);
   const joinMatch = useReducer(reducers.joinMatch);
   const startMatch = useReducer(reducers.startMatch);
   const setDrivingInput = useReducer(reducers.setDrivingInput);
+  const ensureWaitingMatch = useReducer(reducers.ensureWaitingMatch);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -45,6 +43,11 @@ function App() {
   const currentMatch = myProfile
     ? matches.find(item => item.matchId === myProfile.matchId)
     : matches.find(item => item.state === 'waiting');
+  const currentMatchId = currentMatch?.matchId ?? 0n;
+  const subscriptionOptions = { enabled: currentMatch !== undefined };
+  const [vitals] = useTable(tables.playerVitals.where(row => row.matchId.eq(currentMatchId)), subscriptionOptions);
+  const [positions] = useTable(tables.playerPosition.where(row => row.matchId.eq(currentMatchId)), subscriptionOptions);
+  const [obstacles] = useTable(tables.obstacle.where(row => row.matchId.eq(currentMatchId)), subscriptionOptions);
   const participants = useMemo(
     () => currentMatch ? profiles.filter(profile => profile.matchId === currentMatch.matchId) : [],
     [profiles, currentMatch]
@@ -65,6 +68,10 @@ function App() {
   useEffect(() => {
     setSceneReady(false);
   }, [currentMatch?.matchId, currentMatch?.state]);
+
+  useEffect(() => {
+    if (connected) ensureWaitingMatch().catch(console.error);
+  }, [connected, ensureWaitingMatch]);
 
   async function handleJoin(event: FormEvent) {
     event.preventDefault();
@@ -96,9 +103,18 @@ function App() {
   useEffect(() => {
     if (!myProfile || currentMatch?.state !== 'active') return;
     const playerId = myProfile.playerId;
+    let lastSent = { steering: NaN, throttle: NaN, boost: false };
+    let lastSentAt = 0;
     const send = () => {
+      const now = performance.now();
+      const inputChanged = lastSent.steering !== driving.current.steering
+        || lastSent.throttle !== driving.current.throttle
+        || lastSent.boost !== driving.current.boost;
+      if (!inputChanged && now - lastSentAt < 900) return;
       inputSeq.current += 1;
       setDrivingInput({ playerId, ...driving.current, inputSeq: inputSeq.current }).catch(console.error);
+      lastSent = { ...driving.current };
+      lastSentAt = now;
     };
     const keyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') driving.current.steering = -1;
@@ -116,13 +132,15 @@ function App() {
     window.addEventListener('keydown', keyDown);
     window.addEventListener('keyup', keyUp);
     window.addEventListener('blur', release);
-    const timer = window.setInterval(send, 100);
+    const timer = window.setInterval(send, 50);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', release);
       release();
+      inputSeq.current += 1;
+      setDrivingInput({ playerId, ...driving.current, inputSeq: inputSeq.current }).catch(console.error);
     };
   }, [currentMatch?.state, myProfile, setDrivingInput]);
 
@@ -144,18 +162,19 @@ function App() {
   if (myProfile && currentMatch?.state === 'active') {
     const myPosition = matchPositions.find(item => item.playerId === myProfile.playerId);
     const myVitals = matchVitals.find(item => item.playerId === myProfile.playerId);
+    const vitalsByPlayer = new Map(matchVitals.map(item => [item.playerId, item]));
     const sorted = [...participants].sort((a, b) => {
-      const aScore = matchVitals.find(item => item.playerId === a.playerId)?.score ?? 0;
-      const bScore = matchVitals.find(item => item.playerId === b.playerId)?.score ?? 0;
+      const aScore = vitalsByPlayer.get(a.playerId)?.score ?? 0;
+      const bScore = vitalsByPlayer.get(b.playerId)?.score ?? 0;
       return bScore - aScore;
     });
     return (
       <main className="game-page">
         <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} onReady={() => setSceneReady(true)} />
-        <VehicleDebugPanel />
+        {new URLSearchParams(window.location.search).get('debugPhysics') === '1' && <VehicleDebugPanel />}
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
-          <div><small>{Math.round(myPosition?.speed ?? 0)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>
+          <div><small>{Math.round((myPosition?.speed ?? 0) * 3.6)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>
           <div className="hud-title">GHAR JALDI PAHUNCHO</div>
           <div className="health" aria-label={`${myVitals?.strikesRemaining ?? 3} strikes remaining`}>
             {Array.from({ length: 3 }, (_, index) => <span className={index < (myVitals?.strikesRemaining ?? 3) ? 'live' : ''} key={index}>●</span>)}
@@ -165,7 +184,7 @@ function App() {
           {sorted.map((profile, index) => (
             <div key={profile.playerId.toString()}>
               <span>{index + 1}. {profile.name}{profile.isBot ? ' 🤖' : ''}</span>
-              <strong>{matchVitals.find(item => item.playerId === profile.playerId)?.score ?? 0}</strong>
+              <strong>{vitalsByPlayer.get(profile.playerId)?.score ?? 0}</strong>
             </div>
           ))}
         </aside>
