@@ -31,6 +31,7 @@ function App() {
   const [joinNextRace, setJoinNextRace] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
   const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('medium');
+  const [nightMode, setNightMode] = useState(false);
   const inputSeq = useRef(0);
   const driving = useRef({ steering: 0, throttle: 0, boost: false });
 
@@ -151,7 +152,7 @@ function App() {
     });
     return (
       <main className="game-page">
-        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} onReady={() => setSceneReady(true)} />
+        <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} quality={quality} nightMode={nightMode} onReady={() => setSceneReady(true)} />
         <VehicleDebugPanel />
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
@@ -174,6 +175,9 @@ function App() {
             <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
           </select>
         </label>
+        <button className={`night-toggle hud ${nightMode ? 'active' : ''}`} type="button" onClick={() => setNightMode(value => !value)} aria-pressed={nightMode}>
+          {nightMode ? '☾ Night on' : '☀ Day'}
+        </button>
         {myVitals?.eliminated && <div className="game-message"><h2>You’re out!</h2><p>Watch the race finish live.</p></div>}
         <div className="controls hud">
           <div className="steering-controls">

@@ -44,6 +44,7 @@ type Props = {
   obstacles: readonly Obstacle[];
   input: { current: { steering: number; throttle: number; boost: boolean } };
   quality: 'low' | 'medium' | 'high';
+  nightMode: boolean;
   onReady: () => void;
 };
 
@@ -443,7 +444,7 @@ function createSidewalkLife(index: number, side: number) {
   return group;
 }
 
-export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, onReady }: Props) {
+export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, nightMode, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
   const positionsRef = useRef(positions);
@@ -588,7 +589,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         if (minute === lastEnvironmentMinute && weather === lastEnvironmentWeather) return;
         lastEnvironmentMinute = minute;
         lastEnvironmentWeather = weather;
-        const phase = timeOfDay(now.getHours() + now.getMinutes() / 60);
+        const phase = nightMode ? 'night' : timeOfDay(now.getHours() + now.getMinutes() / 60);
         const rainy = weather === 'rain';
         const settings = phase === 'morning'
           ? { sky: 0x9fc5dd, fog: 0xa9c7d7, sun: 0xc4dbef, sunPower: 2.2, hemi: 1.55, exposure: 0.96, shadow: 4.5, sunY: 12 }
@@ -1047,7 +1048,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       renderer?.dispose();
       if (renderer?.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
     };
-  }, [myPlayerId]);
+  }, [myPlayerId, quality, nightMode]);
 
   return <div className="game-canvas" ref={mountRef} aria-label="Live race view" />;
 }
