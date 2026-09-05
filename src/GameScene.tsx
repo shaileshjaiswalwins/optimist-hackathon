@@ -596,6 +596,59 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       const carBodies = new Map<string, RigidBody>();
       const obstacleMeshes = new Map<string, THREE.Group>();
       const obstacleBodies = new Map<string, RigidBody>();
+      let localDriveBody: RigidBody | undefined;
+      let physicsAccumulator = 0;
+      const fixedPhysicsStep = 1 / 60;
+
+      const ensureLocalDriveBody = (x: number, distance: number) => {
+        if (localDriveBody) return localDriveBody;
+        localDriveBody = world.createRigidBody(
+          RAPIER.RigidBodyDesc.dynamic()
+            .setTranslation(x, 0.45, -distance)
+            .setLinearDamping(1.85)
+            .setAngularDamping(5.5)
+            .setCanSleep(false)
+        );
+        // This small body supplies real mass/inertia for the local drive
+        // controller. Match collisions remain server-authoritative.
+        world.createCollider(RAPIER.ColliderDesc.cuboid(0.62, 0.28, 1.05), localDriveBody);
+        return localDriveBody;
+      };
+
+      const yawFromRotation = (rotation: { x: number; y: number; z: number; w: number }) =>
+        Math.atan2(2 * (rotation.w * rotation.y + rotation.x * rotation.z), 1 - 2 * (rotation.y * rotation.y + rotation.z * rotation.z));
+
+      const stepLocalVehicle = () => {
+        if (!localDriveBody) return;
+        const velocity = localDriveBody.linvel();
+        const speed = Math.hypot(velocity.x, velocity.z);
+        const yaw = yawFromRotation(localDriveBody.rotation());
+        const engineImpulse = input.current.throttle * (input.current.boost ? 36 : 23) * fixedPhysicsStep;
+        localDriveBody.applyImpulse({
+          x: Math.sin(yaw) * engineImpulse,
+          y: 0,
+          z: -Math.cos(yaw) * engineImpulse,
+        }, true);
+        const steeringStrength = Math.min(1.25, 0.25 + speed * 0.08);
+        const angularVelocity = localDriveBody.angvel().y;
+        localDriveBody.applyTorqueImpulse({
+          x: 0,
+          y: input.current.steering * steeringStrength * fixedPhysicsStep - yaw * 0.46 * fixedPhysicsStep - angularVelocity * 0.16 * fixedPhysicsStep,
+          z: 0,
+        }, true);
+        const maxSpeed = input.current.boost ? 31 : 24;
+        if (speed > maxSpeed) {
+          const ratio = maxSpeed / speed;
+          localDriveBody.setLinvel({ x: velocity.x * ratio, y: 0, z: velocity.z * ratio }, true);
+        }
+        world.timestep = fixedPhysicsStep;
+        world.step();
+        const translation = localDriveBody.translation();
+        if (translation.x < -4.65 || translation.x > 4.65) {
+          localDriveBody.setTranslation({ x: THREE.MathUtils.clamp(translation.x, -4.65, 4.65), y: 0.45, z: translation.z }, true);
+          localDriveBody.setLinvel({ x: 0, y: 0, z: localDriveBody.linvel().z }, true);
+        }
+      };
 
       const ensureCar = (profile: Profile, initialX: number, initialZ: number) => {
         const key = profile.playerId.toString();
@@ -626,22 +679,42 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       let previous = performance.now();
       let predictedX: number | undefined;
       let predictedDistance: number | undefined;
-      let predictedSpeed = 0;
       let firstFrameRendered = false;
       const render = (now: number) => {
         if (disposed || !renderer) return;
         const dt = Math.min((now - previous) / 1000, 0.05);
         previous = now;
         const authoritativeMe = positionsRef.current.find(row => row.playerId === myPlayerId);
-        if (predictedX === undefined) predictedX = authoritativeMe?.x ?? 0;
-        if (predictedDistance === undefined) predictedDistance = authoritativeMe?.distance ?? 0;
-        const targetSpeed = input.current.throttle * 24 + (input.current.boost ? 7 : 0);
-        predictedSpeed = THREE.MathUtils.damp(predictedSpeed, targetSpeed, 7, dt);
-        predictedX = Math.max(-4.65, Math.min(4.65, predictedX + input.current.steering * (3.2 + predictedSpeed * 0.12) * dt));
-        predictedDistance += predictedSpeed * dt;
         if (authoritativeMe) {
-          predictedX = THREE.MathUtils.damp(predictedX, authoritativeMe.x, 3.2, dt);
-          predictedDistance = THREE.MathUtils.damp(predictedDistance, authoritativeMe.distance, 2.2, dt);
+          const body = ensureLocalDriveBody(authoritativeMe.x, authoritativeMe.distance);
+          const translation = body.translation();
+          const serverZ = -authoritativeMe.distance;
+          // Keep the local simulation responsive but gently pull it toward
+          // SpacetimeDB's authoritative result. A large error means a new
+          // round/reconnect and is safely reset in one step.
+          if (Math.abs(translation.x - authoritativeMe.x) > 5 || Math.abs(translation.z - serverZ) > 12) {
+            body.setTranslation({ x: authoritativeMe.x, y: 0.45, z: serverZ }, true);
+            body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+          } else {
+            body.applyImpulse({
+              x: (authoritativeMe.x - translation.x) * 0.045,
+              y: 0,
+              z: (serverZ - translation.z) * 0.045,
+            }, true);
+          }
+        }
+        physicsAccumulator += dt;
+        while (physicsAccumulator >= fixedPhysicsStep) {
+          stepLocalVehicle();
+          physicsAccumulator -= fixedPhysicsStep;
+        }
+        if (localDriveBody) {
+          const translation = localDriveBody.translation();
+          predictedX = translation.x;
+          predictedDistance = -translation.z;
+        } else {
+          predictedX = authoritativeMe?.x ?? 0;
+          predictedDistance = authoritativeMe?.distance ?? 0;
         }
         const myDistance = predictedDistance;
 
@@ -745,7 +818,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         }
         camera.lookAt(myX * 0.12, 0.5, -20);
 
-        world.step();
         renderer.render(scene, camera);
         if (!firstFrameRendered) {
           firstFrameRendered = true;
