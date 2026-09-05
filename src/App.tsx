@@ -27,12 +27,18 @@ function App() {
   const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [joinNextRace, setJoinNextRace] = useState(false);
   const inputSeq = useRef(0);
   const driving = useRef({ steering: 0, throttle: 0, boost: false });
 
-  const myProfile = profiles.find(profile =>
-    profile.identity?.toHexString() === identity?.toHexString()
-  );
+  const identityProfiles = profiles
+    .filter(profile => profile.identity?.toHexString() === identity?.toHexString())
+    .sort((a, b) => Number(b.playerId - a.playerId));
+  const currentIdentityProfile = identityProfiles.find(profile => {
+    const profileMatch = matches.find(item => item.matchId === profile.matchId);
+    return profileMatch?.state === 'waiting' || profileMatch?.state === 'active';
+  });
+  const myProfile = currentIdentityProfile ?? (joinNextRace ? undefined : identityProfiles[0]);
   const currentMatch = myProfile
     ? matches.find(item => item.matchId === myProfile.matchId)
     : matches.find(item => item.state === 'waiting');
@@ -161,7 +167,7 @@ function App() {
   if (myProfile && currentMatch?.state === 'finished') {
     const winner = participants.find(profile => profile.playerId === currentMatch.winnerPlayerId);
     const won = currentMatch.winnerPlayerId === myProfile.playerId;
-    return <main className="result-page"><div className="panel result"><p className="eyebrow">Race over</p><h1>{won ? 'You made it!' : `${winner?.name ?? 'A racer'} wins`}</h1><p>Your score: {matchVitals.find(item => item.playerId === myProfile.playerId)?.score ?? 0}m</p></div></main>;
+    return <main className="result-page"><div className="panel result"><p className="eyebrow">Race over</p><h1>{won ? 'You made it!' : `${winner?.name ?? 'A racer'} wins`}</h1><p>Your score: {matchVitals.find(item => item.playerId === myProfile.playerId)?.score ?? 0}m</p><button className="start-button" onClick={() => setJoinNextRace(true)}>Race again</button></div></main>;
   }
 
   if (myProfile && currentMatch?.state === 'waiting') {
