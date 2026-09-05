@@ -1,7 +1,7 @@
 {
   "name": "jaldigharpahuncho",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,7 @@
     "generate": "cargo run -p gen-bindings -- --out-dir src/module_bindings --module-path spacetimedb && prettier --write src/module_bindings",
     "spacetime:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb",
     "spacetime:publish:local": "spacetime publish --module-path spacetimedb --server local jaldigharpahuncho-local",
-    "spacetime:publish": "spacetime publish --module-path spacetimedb --server maincloud jaldigharpahuncho"
+    "spacetime:publish": "spacetime publish --module-path spacetimedb --server maincloud jaldigharpahuncho-v1"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
