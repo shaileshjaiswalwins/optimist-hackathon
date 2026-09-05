@@ -241,6 +241,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       const carBodies = new Map<string, RigidBody>();
       const obstacleMeshes = new Map<string, THREE.Group>();
       const obstacleBodies = new Map<string, RigidBody>();
+      const visuallyConsumedObstacles = new Set<string>();
 
       const ensureCar = (profile: Profile, initialX: number, initialZ: number) => {
         const key = profile.playerId.toString();
@@ -321,7 +322,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
             const racerZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
             return Math.abs(racerX - targetX) < 1.9 && Math.abs(racerZ - targetZ) < 4.1;
           });
-          const visuallyActive = current.active && !touchingRacer;
+          // Client prediction can see contact before the 20 Hz server update.
+          // Latch the obstacle as consumed so it cannot briefly reappear behind
+          // the racer and look as though it reversed direction after impact.
+          if (touchingRacer) visuallyConsumedObstacles.add(key);
+          const visuallyActive = current.active && !visuallyConsumedObstacles.has(key);
           mesh.visible = visuallyActive;
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 14, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 12, dt);
