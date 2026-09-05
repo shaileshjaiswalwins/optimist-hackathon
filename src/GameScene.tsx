@@ -939,7 +939,13 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         }
         const speedKmh = Math.abs(localVehicle.currentVehicleSpeed()) * 3.6;
         const steeringScale = THREE.MathUtils.lerp(1, tuning.highSpeedSteeringFactor, Math.min(speedKmh / tuning.topSpeedKmh, 1));
-        const steering = input.current.steering * tuning.maxSteeringAngle * steeringScale;
+        // Server-side steering semantics (spacetimedb/src/index.ts gameTick) are
+        // steering>0 => x increases (car moves right). Rapier's vehicle
+        // controller turns the wheels the opposite way for a given steering
+        // angle sign under this rig's forward-axis/up-axis setup, so the wheel
+        // angle here must be negated to keep the local physical car turning
+        // the same direction the player pressed and the server agrees with.
+        const steering = -input.current.steering * tuning.maxSteeringAngle * steeringScale;
         const engine = input.current.throttle && speedKmh < tuning.topSpeedKmh
           ? -tuning.engineForce * (input.current.boost ? 1.16 : 1)
           : 0;

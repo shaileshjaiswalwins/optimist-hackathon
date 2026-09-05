@@ -317,13 +317,13 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
   const selectedMatch = ctx.db.match.match_id.find(timer.match_id);
   if (!selectedMatch || selectedMatch.state !== 'active') return;
   const nextTick = selectedMatch.tick_count + 1n;
-  // Give every client (human clients load 3D assets; bots don't) a few
-  // seconds to finish loading before anyone moves, so bots can't rack up
-  // a lead while a player's browser is still fetching models/textures.
-  if (nextTick <= START_GRACE_TICKS) {
-    ctx.db.match.match_id.update({ ...selectedMatch, tick_count: nextTick });
-    return;
-  }
+  // Bots don't have to wait on 3D assets, so hold their throttle at the
+  // grid for the first few seconds while a human's browser is still
+  // loading. Human players are never held back here — freezing the whole
+  // tick would fight the client's own physics prediction, which keeps
+  // moving locally and gets yanked back by the reconciliation impulse
+  // toward a frozen server position, effectively stalling the player too.
+  const inStartGrace = nextTick <= START_GRACE_TICKS;
   const profiles = [...ctx.db.player_profile.match_id.filter(timer.match_id)];
   const lanes = laneCenters(laneCountFor(profiles.length));
   const roadHalfWidth = (lanes.length - 1) / 2 * LANE_WIDTH + 1.45;
@@ -358,10 +358,11 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
         steering = 0;
       }
     }
+    const throttle = profile.is_bot && inStartGrace ? 0 : position.throttle;
     const dynamics = VEHICLE_DYNAMICS[profile.vehicle_type] ?? VEHICLE_DYNAMICS.auto;
     const topSpeed = dynamics.topSpeed * (position.boost ? 1.12 : 1);
-    const engineAcceleration = dynamics.acceleration * position.throttle * Math.max(0.15, 1 - position.speed / topSpeed);
-    const acceleration = position.throttle > 0
+    const engineAcceleration = dynamics.acceleration * throttle * Math.max(0.15, 1 - position.speed / topSpeed);
+    const acceleration = throttle > 0
       ? engineAcceleration
       : -dynamics.coastDeceleration;
     const speed = Math.max(0, Math.min(topSpeed, position.speed + acceleration * 0.05));
