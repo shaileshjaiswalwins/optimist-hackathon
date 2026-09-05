@@ -1,0 +1,10 @@
+{
+  "name": "worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "send": "node --env-file=.env src/sendEmail.mjs",
+    "send-batch": "node --env-file=.env src/sendBatch.mjs"
+  }
+}
