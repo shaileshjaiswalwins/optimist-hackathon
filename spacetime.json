@@ -3,6 +3,6 @@
     "run": "npm run dev"
   },
   "module-path": "./spacetimedb",
-  "database": "jaldigharpahuncho",
+  "database": "jaldigharpahuncho-v1",
   "server": "maincloud"
 }
