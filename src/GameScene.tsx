@@ -247,40 +247,6 @@ function racerNameplate(name: string, isBot: boolean) {
   return sprite;
 }
 
-function addPedestrian(group: THREE.Group, x: number, z: number, paletteIndex: number, withDog = false) {
-  const outfits = [0xc74b43, 0x426ea5, 0x5a8c4a, 0xd98a32];
-  const outfit = outfits[paletteIndex % outfits.length];
-  const person = new THREE.Group();
-  person.position.set(x, 0, z);
-  const leftLeg = cylinder(0.13, 0.62, 0x30343a, -0.11, 0.4, 0, 8);
-  const rightLeg = cylinder(0.13, 0.62, 0x30343a, 0.11, 0.4, 0, 8);
-  person.add(leftLeg, rightLeg);
-  person.add(box(0.42, 0.68, 0.24, outfit, 0, 1.03, 0));
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 8, 7), new THREE.MeshLambertMaterial({ color: paletteIndex % 2 ? 0x8e5c40 : 0xc98761 }));
-  head.position.set(0, 1.58, 0);
-  person.add(head);
-  const leftArm = box(0.11, 0.5, 0.12, paletteIndex % 2 ? 0x8e5c40 : 0xc98761, -0.29, 1.07, 0);
-  const rightArm = box(0.11, 0.5, 0.12, paletteIndex % 2 ? 0x8e5c40 : 0xc98761, 0.29, 1.07, 0);
-  person.add(leftArm, rightArm);
-  person.userData.limbs = [leftLeg, rightLeg, leftArm, rightArm];
-  if (withDog) {
-    const dogX = 0.62;
-    person.add(box(0.55, 0.3, 0.22, 0xa96f42, dogX, 0.3, -0.05));
-    person.add(cylinder(0.07, 0.35, 0x42372c, dogX - 0.18, 0.17, -0.14, 7));
-    person.add(cylinder(0.07, 0.35, 0x42372c, dogX + 0.18, 0.17, -0.14, 7));
-    const dogHead = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshLambertMaterial({ color: 0xa96f42 }));
-    dogHead.position.set(dogX + 0.32, 0.45, -0.05);
-    person.add(dogHead);
-    const leash = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.17, 1.12, 0), new THREE.Vector3(dogX + 0.15, 0.58, -0.04)]),
-      new THREE.LineBasicMaterial({ color: 0x303030 })
-    );
-    person.add(leash);
-  }
-  group.add(person);
-  return person;
-}
-
 function addDistrictDetail(group: THREE.Group, district: number, width: number, depth: number, height: number, side: number) {
   const front = -depth / 2 - 0.34;
   const nearSide = side > 0 ? -1 : 1;
@@ -401,9 +367,6 @@ function createRoadsideBlock(index: number, side: number) {
     group.add(box(1.22, 0.13, 0.9, 0xe2b84d, stallX, 0.98, -depth / 2 - 0.62));
     group.add(cylinder(0.12, 0.22, 0xd9d4bd, stallX - 0.25, 1.16, -depth / 2 - 0.75, 8));
   }
-  if (index % 2 === 0) {
-    addPedestrian(group, side > 0 ? -width * 0.42 : width * 0.42, -depth / 2 - 0.75, index, index % 4 === 0);
-  }
   addDistrictDetail(group, district, width, depth, height, side);
   return group;
 }
@@ -434,13 +397,6 @@ function createBengaluruBackdrop(index: number, side: number) {
   const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.96, 0), new THREE.MeshLambertMaterial({ color: 0x376e3f }));
   crown.position.set(treeX, 2.6, -depth / 2 - 1.15);
   group.add(crown);
-  return group;
-}
-
-function createSidewalkLife(index: number, side: number) {
-  const group = new THREE.Group();
-  group.userData.walker = addPedestrian(group, 0, 0, index, index % 5 === 0);
-  group.rotation.y = side > 0 ? Math.PI : 0;
   return group;
 }
 
@@ -682,7 +638,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       const routeLandmarks: Array<{ object: THREE.LOD; baseDistance: number }> = [];
       for (const zone of CITY_ROUTE_ZONES) {
         const landmark = createLandmark(zone.landmark);
-        landmark.position.set(zone.id === 'orr' ? 0 : zone.id === 'cbd' ? -7.2 : 7.2, 0, 0);
+        landmark.position.set(zone.id === 'orr' ? -7.6 : zone.id === 'cbd' ? -7.2 : 7.2, 0, 0);
         scene.add(landmark);
         routeLandmarks.push({ object: landmark, baseDistance: zone.start + 34 });
       }
@@ -741,31 +697,13 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           skylineBlocks.push({ group, baseDistance: index * skylineSpacing + (side > 0 ? skylineSpacing / 2 : 0) });
         }
       }
-      const sidewalkPeople: Array<{ group: THREE.Group; baseDistance: number; phase: number }> = [];
-      const peopleSpacing = 18;
-      const peopleLoop = 16 * peopleSpacing;
-      for (const side of [-1, 1]) {
-        for (let index = 0; index < 16; index += 1) {
-          const group = createSidewalkLife(index + (side > 0 ? 3 : 0), side);
-          group.position.x = side * (8.25 + (index % 2) * 0.55);
-          scene.add(group);
-          sidewalkPeople.push({
-            group,
-            baseDistance: index * peopleSpacing + (side > 0 ? peopleSpacing / 2 : 0),
-            phase: index * 0.83 + (side > 0 ? 0.45 : 0),
-          });
-        }
-      }
-
       // The local chassis is intentionally client-only: SpacetimeDB continues
       // to own scoring, collisions, and all game rules. Rapier gives the
       // player vehicle a stable physical feel between authoritative updates.
       const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
       world.createCollider(RAPIER.ColliderDesc.cuboid(7, 0.08, 12000).setTranslation(0, -0.08, 0));
       const carMeshes = new Map<string, THREE.Group>();
-      const carBodies = new Map<string, RigidBody>();
       const obstacleMeshes = new Map<string, THREE.Group>();
-      const obstacleBodies = new Map<string, RigidBody>();
       let localDriveBody: RigidBody | undefined;
       let localVehicle: DynamicRayCastVehicleController | undefined;
       let physicsAccumulator = 0;
@@ -864,10 +802,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         group.add(racerNameplate(profile.name, profile.isBot));
         group.position.set(initialX, 0, initialZ);
         scene.add(group);
-        const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
-        world.createCollider(RAPIER.ColliderDesc.cuboid(0.8, 0.5, 1.4), body);
         carMeshes.set(key, group);
-        carBodies.set(key, body);
       };
 
       const ensureObstacle = (obstacle: Obstacle, initialZ: number) => {
@@ -880,10 +815,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         });
         mesh.position.set(obstacle.x, 0, initialZ);
         scene.add(mesh);
-        const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
-        world.createCollider(RAPIER.ColliderDesc.cuboid(0.85, 0.55, 1.5), body);
         obstacleMeshes.set(key, mesh);
-        obstacleBodies.set(key, body);
       };
 
       let previous = performance.now();
@@ -942,8 +874,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           rain.position.z = camera.position.z - 55;
         }
 
+        const positionsByPlayer = new Map(positionsRef.current.map(position => [position.playerId, position]));
         for (const profile of profilesRef.current) {
-          const position = positionsRef.current.find(row => row.playerId === profile.playerId);
+          const position = positionsByPlayer.get(profile.playerId);
           if (!position) continue;
           const initialX = profile.playerId === myPlayerId ? predictedX : position.x;
           const initialZ = profile.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
@@ -952,8 +885,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         for (const position of positionsRef.current) {
           const key = position.playerId.toString();
           const mesh = carMeshes.get(key);
-          const body = carBodies.get(key);
-          if (!mesh || !body) continue;
+          if (!mesh) continue;
           const targetX = position.playerId === myPlayerId ? predictedX : position.x;
           const targetZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 11, dt);
@@ -961,28 +893,23 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           const visualSteering = position.playerId === myPlayerId ? input.current.steering : position.steering;
           mesh.rotation.y = THREE.MathUtils.damp(mesh.rotation.y, -visualSteering * 0.13, 10, dt);
           mesh.rotation.z = THREE.MathUtils.damp(mesh.rotation.z, -visualSteering * 0.07, 10, dt);
-          body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.8, z: mesh.position.z });
         }
 
         // Obstacle rows are the source of truth. Retire their meshes when the
         // server removes the row, rather than leaving stale traffic frozen on
-        // the road. This also bounds the number of Three/Rapier objects in a
+        // the road. This also bounds the number of Three.js objects in a
         // long-running match.
         const liveObstacleKeys = new Set(obstaclesRef.current.map(row => row.obstacleId.toString()));
         for (const [key, mesh] of obstacleMeshes) {
           if (liveObstacleKeys.has(key)) continue;
           scene.remove(mesh);
-          const body = obstacleBodies.get(key);
-          if (body) world.removeRigidBody(body);
           obstacleMeshes.delete(key);
-          obstacleBodies.delete(key);
         }
 
         for (const current of obstaclesRef.current) {
           ensureObstacle(current, 4 - (current.distance - myDistance));
           const key = current.obstacleId.toString();
           const mesh = obstacleMeshes.get(key)!;
-          const body = obstacleBodies.get(key)!;
           const targetX = current.x;
           const targetZ = 4 - (current.distance - myDistance);
           // Do not hide an approaching vehicle based on a locally predicted
@@ -993,8 +920,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 14, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 12, dt);
           mesh.rotation.y = Math.PI;
-          body.setEnabled(visuallyActive);
-          if (visuallyActive) body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.9, z: mesh.position.z });
         }
 
         for (const marker of roadMarkers) {
@@ -1019,24 +944,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           const relativeDistance = ((block.baseDistance - myDistance) % skylineLoop + skylineLoop) % skylineLoop;
           block.group.position.z = 18 - relativeDistance;
           block.group.visible = relativeDistance < 165;
-        }
-        for (const person of sidewalkPeople) {
-          const relativeDistance = ((person.baseDistance - myDistance) % peopleLoop + peopleLoop) % peopleLoop;
-          const step = now * 0.009 + person.phase;
-          // Small forward/back path movement plus a real limb swing prevents
-          // the crowd from reading as static roadside mannequins.
-          person.group.position.z = 18 - relativeDistance + Math.sin(step * 0.22) * 2.4;
-          person.group.position.y = Math.max(0, Math.sin(step * 2) * 0.035);
-          const walker = person.group.userData.walker as THREE.Group | undefined;
-          const limbs = walker?.userData.limbs as THREE.Object3D[] | undefined;
-          if (limbs) {
-            const swing = Math.sin(step) * 0.52;
-            limbs[0].rotation.x = swing;
-            limbs[1].rotation.x = -swing;
-            limbs[2].rotation.x = -swing * 0.75;
-            limbs[3].rotation.x = swing * 0.75;
-          }
-          person.group.visible = relativeDistance < 115;
         }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
