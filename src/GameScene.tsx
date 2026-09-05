@@ -222,7 +222,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       camera.lookAt(0, 0, -20);
 
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-      renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      renderer.setPixelRatio(Math.min(devicePixelRatio, mount.clientWidth < 760 ? 1.25 : 1.5));
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       mount.appendChild(renderer.domElement);
 
@@ -435,9 +435,15 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       const resize = () => {
         if (!renderer) return;
         camera.aspect = mount.clientWidth / mount.clientHeight;
+        const portraitPhone = camera.aspect < 0.72;
+        camera.fov = portraitPhone ? 72 : 58;
+        camera.position.y = portraitPhone ? 8.7 : 7.5;
+        camera.position.z = portraitPhone ? 15 : 12;
         camera.updateProjectionMatrix();
+        renderer.setPixelRatio(Math.min(devicePixelRatio, mount.clientWidth < 760 ? 1.25 : 1.5));
         renderer.setSize(mount.clientWidth, mount.clientHeight);
       };
+      resize();
       window.addEventListener('resize', resize);
 
       return () => window.removeEventListener('resize', resize);

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useReducer, useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { reducers, tables } from './module_bindings';
 import { GameScene } from './GameScene';
@@ -123,6 +123,17 @@ function App() {
     driving.current = { ...driving.current, ...control };
   }
 
+  function pressControl(event: ReactPointerEvent<HTMLButtonElement>, control: Partial<typeof driving.current>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    holdControl(control);
+  }
+
+  function releaseControl(event: ReactPointerEvent<HTMLButtonElement>, control: Partial<typeof driving.current>) {
+    event.preventDefault();
+    holdControl(control);
+  }
+
   if (myProfile && currentMatch?.state === 'active') {
     const myPosition = matchPositions.find(item => item.playerId === myProfile.playerId);
     const myVitals = matchVitals.find(item => item.playerId === myProfile.playerId);
@@ -152,12 +163,12 @@ function App() {
         {myVitals?.eliminated && <div className="game-message"><h2>You’re out!</h2><p>Watch the race finish live.</p></div>}
         <div className="controls hud">
           <div className="steering-controls">
-            <button onPointerDown={() => holdControl({ steering: -1 })} onPointerUp={() => holdControl({ steering: 0 })} onPointerCancel={() => holdControl({ steering: 0 })} aria-label="Steer left">←</button>
-            <button onPointerDown={() => holdControl({ steering: 1 })} onPointerUp={() => holdControl({ steering: 0 })} onPointerCancel={() => holdControl({ steering: 0 })} aria-label="Steer right">→</button>
+            <button type="button" onPointerDown={event => pressControl(event, { steering: -1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer left">←</button>
+            <button type="button" onPointerDown={event => pressControl(event, { steering: 1 })} onPointerUp={event => releaseControl(event, { steering: 0 })} onPointerCancel={event => releaseControl(event, { steering: 0 })} aria-label="Steer right">→</button>
           </div>
           <div className="speed-controls">
-            <button className="boost" onPointerDown={() => holdControl({ boost: true })} onPointerUp={() => holdControl({ boost: false })} onPointerCancel={() => holdControl({ boost: false })}>BOOST</button>
-            <button className="accelerate" onPointerDown={() => holdControl({ throttle: 1 })} onPointerUp={() => holdControl({ throttle: 0 })} onPointerCancel={() => holdControl({ throttle: 0 })}>RACE</button>
+            <button type="button" className="boost" onPointerDown={event => pressControl(event, { boost: true })} onPointerUp={event => releaseControl(event, { boost: false })} onPointerCancel={event => releaseControl(event, { boost: false })}>BOOST</button>
+            <button type="button" className="accelerate" onPointerDown={event => pressControl(event, { throttle: 1 })} onPointerUp={event => releaseControl(event, { throttle: 0 })} onPointerCancel={event => releaseControl(event, { throttle: 0 })}>RACE</button>
           </div>
         </div>
       </main>
@@ -189,8 +200,8 @@ function App() {
       <section className="hero"><p className="eyebrow">Jaldi Ghar Pahuncho</p><h1>Traffic is chaos.<br />Home is waiting.</h1><p>An instant QR multiplayer race for live events—no install, no password.</p></section>
       <form className="panel join-form" onSubmit={handleJoin}>
         <div className={`connection ${connected ? 'online' : ''}`}><span />{connected ? 'Live connection ready' : 'Connecting to the race…'}</div>
-        <label>Racer name<input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={30} placeholder="What should we call you?" required /></label>
-        <label>Email<input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" required /><small>Used only for event updates and your race recap.</small></label>
+        <label>Racer name<input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={30} autoComplete="name" placeholder="What should we call you?" required /></label>
+        <label>Email<input type="email" inputMode="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" required /><small>Used only for event updates and your race recap.</small></label>
         <fieldset><legend>Choose your ride</legend><div className="vehicle-grid">{vehicles.map(option => <label className={`vehicle ${vehicle === option.id ? 'selected' : ''}`} key={option.id}><input type="radio" name="vehicle" value={option.id} checked={vehicle === option.id} onChange={() => setVehicle(option.id)} /><span>{option.emoji}</span><strong>{option.label}</strong></label>)}</div></fieldset>
         <label className="consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} required /><span>I agree to receive updates about this event. My email will be stored for this purpose.</span></label>
         {error && <p className="error" role="alert">{error}</p>}
