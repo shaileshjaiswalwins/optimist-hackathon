@@ -34,6 +34,7 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import EnsureWaitingMatchReducer from "./ensure_waiting_match_reducer";
 import JoinMatchReducer from "./join_match_reducer";
 import SetDrivingInputReducer from "./set_driving_input_reducer";
 import StartMatchReducer from "./start_match_reducer";
@@ -131,6 +132,7 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("ensure_waiting_match", EnsureWaitingMatchReducer),
   __reducerSchema("join_match", JoinMatchReducer),
   __reducerSchema("set_driving_input", SetDrivingInputReducer),
   __reducerSchema("start_match", StartMatchReducer),

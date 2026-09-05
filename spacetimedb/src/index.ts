@@ -106,6 +106,23 @@ export const init = spacetimedb.init(ctx => {
   });
 });
 
+// Safe recovery hook for deployments created before continuous lobbies were
+// introduced. Repeated calls are harmless because only one waiting match is
+// created when none exists.
+export const ensureWaitingMatch = spacetimedb.reducer(ctx => {
+  if ([...ctx.db.match.iter()].some(existing => existing.state === 'waiting')) return;
+  ctx.db.match.insert({
+    match_id: 0n,
+    state: 'waiting',
+    max_slots: 4,
+    tick_count: 0n,
+    created_at: ctx.timestamp,
+    started_at: undefined,
+    finished_at: undefined,
+    winner_player_id: undefined,
+  });
+});
+
 export const joinMatch = spacetimedb.reducer({
   match_id: t.u64(), name: t.string(), email: t.string(),
   consent_given: t.bool(), vehicle_type: t.string(),
@@ -163,6 +180,18 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
     scheduled_id: 0n,
     scheduled_at: ScheduleAt.interval(50_000n),
     match_id,
+  });
+  // Keep the event joinable while this race is in progress. Each lobby starts
+  // its own independent match and immediately creates the next lobby.
+  ctx.db.match.insert({
+    match_id: 0n,
+    state: 'waiting',
+    max_slots: selectedMatch.max_slots,
+    tick_count: 0n,
+    created_at: ctx.timestamp,
+    started_at: undefined,
+    finished_at: undefined,
+    winner_player_id: undefined,
   });
 });
 
@@ -286,16 +315,6 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
       finished_at: ctx.timestamp, winner_player_id: alive[0]?.player_id,
     });
     ctx.db.game_tick_schedule.scheduled_id.delete(timer.scheduled_id);
-    ctx.db.match.insert({
-      match_id: 0n,
-      state: 'waiting',
-      max_slots: selectedMatch.max_slots,
-      tick_count: 0n,
-      created_at: ctx.timestamp,
-      started_at: undefined,
-      finished_at: undefined,
-      winner_player_id: undefined,
-    });
     return;
   }
   ctx.db.match.match_id.update({ ...selectedMatch, tick_count: nextTick });
