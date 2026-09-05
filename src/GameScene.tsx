@@ -1013,16 +1013,26 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           const serverZ = -authoritativeMe.distance;
           // Keep the local simulation responsive but gently pull it toward
           // SpacetimeDB's authoritative result. A large error means a new
-          // round/reconnect and is safely reset in one step.
-          if (Math.abs(translation.x - authoritativeMe.x) > 5 || Math.abs(translation.z - serverZ) > 12) {
+          // round/reconnect and is safely reset in one step. The thresholds
+          // are generous because ordinary WAN round-trip latency (150-300ms+)
+          // at highway speeds naturally puts the local car several meters
+          // ahead of the last position the server broadcast — that gap is
+          // not a desync, and teleporting the car back every time it opened
+          // up was the actual cause of the visible frame-by-frame stutter.
+          if (Math.abs(translation.x - authoritativeMe.x) > 20 || Math.abs(translation.z - serverZ) > 40) {
             body.setTranslation({ x: authoritativeMe.x, y: 0.72, z: serverZ }, true);
             body.setLinvel({ x: 0, y: 0, z: 0 }, true);
             previousPhysicsX = currentPhysicsX = authoritativeMe.x;
             previousPhysicsZ = currentPhysicsZ = serverZ;
           } else {
-            correctionImpulse.x = (authoritativeMe.x - translation.x) * 0.045;
+            // Scale by dt so the pull-back rate is the same regardless of
+            // frame rate — the old fixed-per-frame impulse made correction
+            // (and therefore how far the car visibly drifted before being
+            // tugged back) roughly twice as strong at 60fps as at 30fps.
+            const correctionGain = 2.6;
+            correctionImpulse.x = (authoritativeMe.x - translation.x) * correctionGain * dt;
             correctionImpulse.y = 0;
-            correctionImpulse.z = (serverZ - translation.z) * 0.045;
+            correctionImpulse.z = (serverZ - translation.z) * correctionGain * dt;
             body.applyImpulse(correctionImpulse, true);
           }
         }
