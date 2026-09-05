@@ -236,26 +236,35 @@ function racerNameplate(name: string, isBot: boolean) {
 function addPedestrian(group: THREE.Group, x: number, z: number, paletteIndex: number, withDog = false) {
   const outfits = [0xc74b43, 0x426ea5, 0x5a8c4a, 0xd98a32];
   const outfit = outfits[paletteIndex % outfits.length];
-  group.add(cylinder(0.13, 0.62, 0x30343a, x - 0.11, 0.4, z, 8));
-  group.add(cylinder(0.13, 0.62, 0x30343a, x + 0.11, 0.4, z, 8));
-  group.add(box(0.42, 0.68, 0.24, outfit, x, 1.03, z));
+  const person = new THREE.Group();
+  person.position.set(x, 0, z);
+  const leftLeg = cylinder(0.13, 0.62, 0x30343a, -0.11, 0.4, 0, 8);
+  const rightLeg = cylinder(0.13, 0.62, 0x30343a, 0.11, 0.4, 0, 8);
+  person.add(leftLeg, rightLeg);
+  person.add(box(0.42, 0.68, 0.24, outfit, 0, 1.03, 0));
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 8, 7), new THREE.MeshLambertMaterial({ color: paletteIndex % 2 ? 0x8e5c40 : 0xc98761 }));
-  head.position.set(x, 1.58, z);
-  group.add(head);
+  head.position.set(0, 1.58, 0);
+  person.add(head);
+  const leftArm = box(0.11, 0.5, 0.12, paletteIndex % 2 ? 0x8e5c40 : 0xc98761, -0.29, 1.07, 0);
+  const rightArm = box(0.11, 0.5, 0.12, paletteIndex % 2 ? 0x8e5c40 : 0xc98761, 0.29, 1.07, 0);
+  person.add(leftArm, rightArm);
+  person.userData.limbs = [leftLeg, rightLeg, leftArm, rightArm];
   if (withDog) {
-    const dogX = x + 0.62;
-    group.add(box(0.55, 0.3, 0.22, 0xa96f42, dogX, 0.3, z - 0.05));
-    group.add(cylinder(0.07, 0.35, 0x42372c, dogX - 0.18, 0.17, z - 0.14, 7));
-    group.add(cylinder(0.07, 0.35, 0x42372c, dogX + 0.18, 0.17, z - 0.14, 7));
-    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshLambertMaterial({ color: 0xa96f42 })));
-    const dogHead = group.children[group.children.length - 1] as THREE.Mesh;
-    dogHead.position.set(dogX + 0.32, 0.45, z - 0.05);
+    const dogX = 0.62;
+    person.add(box(0.55, 0.3, 0.22, 0xa96f42, dogX, 0.3, -0.05));
+    person.add(cylinder(0.07, 0.35, 0x42372c, dogX - 0.18, 0.17, -0.14, 7));
+    person.add(cylinder(0.07, 0.35, 0x42372c, dogX + 0.18, 0.17, -0.14, 7));
+    const dogHead = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), new THREE.MeshLambertMaterial({ color: 0xa96f42 }));
+    dogHead.position.set(dogX + 0.32, 0.45, -0.05);
+    person.add(dogHead);
     const leash = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x + 0.17, 1.12, z), new THREE.Vector3(dogX + 0.15, 0.58, z - 0.04)]),
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.17, 1.12, 0), new THREE.Vector3(dogX + 0.15, 0.58, -0.04)]),
       new THREE.LineBasicMaterial({ color: 0x303030 })
     );
-    group.add(leash);
+    person.add(leash);
   }
+  group.add(person);
+  return person;
 }
 
 function addDistrictDetail(group: THREE.Group, district: number, width: number, depth: number, height: number, side: number) {
@@ -416,7 +425,7 @@ function createBengaluruBackdrop(index: number, side: number) {
 
 function createSidewalkLife(index: number, side: number) {
   const group = new THREE.Group();
-  addPedestrian(group, 0, 0, index, index % 5 === 0);
+  group.userData.walker = addPedestrian(group, 0, 0, index, index % 5 === 0);
   group.rotation.y = side > 0 ? Math.PI : 0;
   return group;
 }
@@ -742,8 +751,20 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
         }
         for (const person of sidewalkPeople) {
           const relativeDistance = ((person.baseDistance - myDistance) % peopleLoop + peopleLoop) % peopleLoop;
-          person.group.position.z = 18 - relativeDistance;
-          person.group.position.y = Math.max(0, Math.sin(now * 0.004 + person.phase) * 0.035);
+          const step = now * 0.009 + person.phase;
+          // Small forward/back path movement plus a real limb swing prevents
+          // the crowd from reading as static roadside mannequins.
+          person.group.position.z = 18 - relativeDistance + Math.sin(step * 0.22) * 1.15;
+          person.group.position.y = Math.max(0, Math.sin(step * 2) * 0.035);
+          const walker = person.group.userData.walker as THREE.Group | undefined;
+          const limbs = walker?.userData.limbs as THREE.Object3D[] | undefined;
+          if (limbs) {
+            const swing = Math.sin(step) * 0.52;
+            limbs[0].rotation.x = swing;
+            limbs[1].rotation.x = -swing;
+            limbs[2].rotation.x = -swing * 0.75;
+            limbs[3].rotation.x = swing * 0.75;
+          }
           person.group.visible = relativeDistance < 115;
         }
         const myX = predictedX;
