@@ -121,6 +121,42 @@ function createTrafficVehicle(variant: number) {
   return group;
 }
 
+function createRoadsideBlock(index: number, side: number) {
+  const group = new THREE.Group();
+  const palettes = [0xe6a15c, 0x75a6a4, 0xd87668, 0xd1b36a, 0x8c83a8, 0xb9c477];
+  const width = 4.2 + (index % 3) * 0.8;
+  const depth = 4.5 + ((index + 1) % 3) * 0.9;
+  const floors = 2 + (index % 4);
+  const height = floors * 1.65;
+  const color = palettes[index % palettes.length];
+
+  group.add(box(width, height, depth, color, 0, height / 2, 0));
+  group.add(box(width + 0.15, 0.18, depth + 0.15, 0x53493e, 0, height + 0.08, 0));
+  group.add(box(width * 0.92, 0.5, 0.16, index % 2 ? 0xe84d38 : 0xf2be3e, 0, 1.05, -depth / 2 - 0.1));
+
+  const windowMaterial = new THREE.MeshBasicMaterial({ color: 0xa9e2ed });
+  for (let floor = 1; floor < floors; floor += 1) {
+    for (const windowX of [-width * 0.25, width * 0.25]) {
+      const windowMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.62), windowMaterial);
+      windowMesh.position.set(windowX, floor * 1.55 + 0.35, -depth / 2 - 0.011);
+      group.add(windowMesh);
+    }
+  }
+
+  // A simple tree and lamp make each block read as a lively Indian roadside.
+  const treeX = side > 0 ? -width * 0.72 : width * 0.72;
+  group.add(box(0.22, 1.8, 0.22, 0x68452f, treeX, 0.9, -depth / 2 - 0.8));
+  const crown = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(0.85, 0),
+    new THREE.MeshLambertMaterial({ color: 0x3d773e })
+  );
+  crown.position.set(treeX, 2.15, -depth / 2 - 0.8);
+  group.add(crown);
+  group.add(box(0.1, 2.8, 0.1, 0x343b3e, -treeX, 1.4, -depth / 2 - 0.6));
+  group.add(box(0.55, 0.14, 0.22, 0xffe7a3, -treeX + side * 0.22, 2.75, -depth / 2 - 0.6));
+  return group;
+}
+
 export function GameScene({ myPlayerId, profiles, positions, obstacles, input }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
@@ -184,6 +220,19 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           stripe.position.set(x, 0.012, z);
           scene.add(stripe);
           roadMarkers.push({ mesh: stripe, baseZ: z });
+        }
+      }
+
+      const roadsideBlocks: Array<{ group: THREE.Group; baseDistance: number }> = [];
+      const blockSpacing = 13;
+      const blockLoop = 26 * blockSpacing;
+      for (const side of [-1, 1]) {
+        for (let index = 0; index < 26; index += 1) {
+          const group = createRoadsideBlock(index + (side > 0 ? 3 : 0), side);
+          group.position.x = side * (10.3 + (index % 3) * 0.7);
+          group.rotation.y = side > 0 ? -0.035 : 0.035;
+          scene.add(group);
+          roadsideBlocks.push({ group, baseDistance: index * blockSpacing + (side > 0 ? blockSpacing / 2 : 0) });
         }
       }
 
@@ -265,18 +314,30 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const key = current.obstacleId.toString();
           const mesh = obstacleMeshes.get(key)!;
           const body = obstacleBodies.get(key)!;
-          mesh.visible = current.active;
           const targetX = current.x;
           const targetZ = 4 - (current.distance - myDistance);
+          const touchingRacer = positionsRef.current.some(position => {
+            const racerX = position.playerId === myPlayerId ? (predictedX ?? 0) : position.x;
+            const racerZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
+            return Math.abs(racerX - targetX) < 1.9 && Math.abs(racerZ - targetZ) < 4.1;
+          });
+          const visuallyActive = current.active && !touchingRacer;
+          mesh.visible = visuallyActive;
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 14, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 12, dt);
           mesh.rotation.y = Math.PI;
-          body.setEnabled(current.active);
-          if (current.active) body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.9, z: mesh.position.z });
+          body.setEnabled(visuallyActive);
+          if (visuallyActive) body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.9, z: mesh.position.z });
         }
 
-        const roadOffset = myDistance % 10;
-        for (const marker of roadMarkers) marker.mesh.position.z = marker.baseZ + roadOffset;
+        for (const marker of roadMarkers) {
+          marker.mesh.position.z = ((marker.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
+        }
+        for (const block of roadsideBlocks) {
+          const relativeDistance = ((block.baseDistance - myDistance) % blockLoop + blockLoop) % blockLoop;
+          block.group.position.z = 18 - relativeDistance;
+          block.group.visible = relativeDistance < 150;
+        }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
         camera.lookAt(myX * 0.12, 0.5, -20);

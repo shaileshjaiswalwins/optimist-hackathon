@@ -151,7 +151,7 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   racers.forEach((racer, index) => {
     ctx.db.player_position.insert({
       player_id: racer.player_id, match_id,
-      x: ((index % 3) - 1) * 3.2, distance: index * -3,
+      x: ((index % 3) - 1) * 3.2, distance: index * -6,
       speed: racer.is_bot ? 15 + (index % 3) : 0,
       steering: 0, throttle: racer.is_bot ? 0.72 : 0,
       boost: false, input_seq: 0,
@@ -201,13 +201,45 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     ctx.db.player_vitals.player_id.update({ ...vitals, score: Math.max(vitals.score, Math.floor(distance)) });
   }
 
+  // Keep racers from visually and physically occupying the same road space.
+  // The trailing racer is held behind the leading racer when their widths overlap.
+  const activePositions = [...ctx.db.player_position.match_id.filter(timer.match_id)]
+    .filter(position => !ctx.db.player_vitals.player_id.find(position.player_id)?.eliminated)
+    .sort((a, b) => b.distance - a.distance);
+  for (let frontIndex = 0; frontIndex < activePositions.length; frontIndex += 1) {
+    const front = ctx.db.player_position.player_id.find(activePositions[frontIndex].player_id);
+    if (!front) continue;
+    for (let rearIndex = frontIndex + 1; rearIndex < activePositions.length; rearIndex += 1) {
+      const rear = ctx.db.player_position.player_id.find(activePositions[rearIndex].player_id);
+      if (!rear || Math.abs(front.x - rear.x) >= 1.9) continue;
+      const gap = front.distance - rear.distance;
+      if (gap >= 4.6) continue;
+      const separated = {
+        ...rear,
+        distance: front.distance - 4.6,
+        speed: Math.min(rear.speed, Math.max(0, front.speed - 0.5)),
+      };
+      ctx.db.player_position.player_id.update(separated);
+      activePositions[rearIndex] = separated;
+    }
+  }
+
   if (nextTick % 32n === 0n) {
     const lead = Math.max(0, ...[...ctx.db.player_position.match_id.filter(timer.match_id)].map(row => row.distance));
-    ctx.db.obstacle.insert({
-      obstacle_id: 0n, match_id: timer.match_id,
-      x: ctx.random.integerInRange(-1, 1) * 3.2, distance: lead + 72,
-      active: true, spawned_at_tick: nextTick,
-    });
+    const spawnDistance = lead + 72;
+    const lanes = [-3.2, 0, 3.2];
+    const laneOffset = ctx.random.integerInRange(0, lanes.length - 1);
+    const activeObstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)].filter(row => row.active);
+    const spawnX = lanes
+      .map((_, index) => lanes[(index + laneOffset) % lanes.length])
+      .find(x => !activeObstacles.some(row => Math.abs(row.x - x) < 1.9 && Math.abs(row.distance - spawnDistance) < 12));
+    if (spawnX !== undefined) {
+      ctx.db.obstacle.insert({
+        obstacle_id: 0n, match_id: timer.match_id,
+        x: spawnX, distance: spawnDistance,
+        active: true, spawned_at_tick: nextTick,
+      });
+    }
   }
 
   const obstacles = [...ctx.db.obstacle.match_id.filter(timer.match_id)];
@@ -218,7 +250,9 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     for (const position of ctx.db.player_position.match_id.filter(timer.match_id)) {
       const vitals = ctx.db.player_vitals.player_id.find(position.player_id);
       if (!vitals || vitals.eliminated || Math.abs(position.x - moved.x) > 1.35) continue;
-      if (Math.abs(position.distance - moved.distance) > 2.8) continue;
+      // The longest traffic mesh is a bus, so resolve the collision before the
+      // models can visually pass through one another.
+      if (Math.abs(position.distance - moved.distance) > 4.1) continue;
       const strikes = Math.max(0, vitals.strikes_remaining - 1);
       const eliminated = strikes === 0;
       const racersAlive = [...ctx.db.player_vitals.match_id.filter(timer.match_id)].filter(row => !row.eliminated).length;
