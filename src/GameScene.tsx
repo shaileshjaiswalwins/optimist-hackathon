@@ -13,7 +13,6 @@ const TRAFFIC_ASSETS = [
 ];
 
 const ROADSIDE_ASSETS = [
-  { url: '/assets/kenney/city-kit-roads/light-curved.glb', height: 5.8 },
   { url: '/assets/kenney/city-kit-roads/traffic-light.glb', height: 4.6 },
   { url: '/assets/kenney/city-kit-roads/road-sign-warning.glb', height: 2.4 },
   { url: '/assets/kenney/city-kit-roads/construction-barrier.glb', height: 0.85 },
@@ -415,6 +414,13 @@ function createBengaluruBackdrop(index: number, side: number) {
   return group;
 }
 
+function createSidewalkLife(index: number, side: number) {
+  const group = new THREE.Group();
+  addPedestrian(group, 0, 0, index, index % 5 === 0);
+  group.rotation.y = side > 0 ? Math.PI : 0;
+  return group;
+}
+
 export function GameScene({ myPlayerId, profiles, positions, obstacles, input }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
@@ -503,9 +509,10 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
         const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 260), curbMaterial);
         curb.position.set(side * 6.6, 0.08, -95);
         scene.add(curb);
-        const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 260), sidewalkMaterial);
-        sidewalk.rotation.x = -Math.PI / 2;
-        sidewalk.position.set(side * 9.1, 0.004, -95);
+        // A shallow solid slab avoids the coplanar-plane shimmer seen on the
+        // previous pavement and gives pedestrians a visibly wider walkway.
+        const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.16, 260), sidewalkMaterial);
+        sidewalk.position.set(side * 9.2, 0.06, -95);
         scene.add(sidewalk);
       }
 
@@ -546,7 +553,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       for (const side of [-1, 1]) {
         for (let index = 0; index < 26; index += 1) {
           const group = createRoadsideBlock(index + (side > 0 ? 3 : 0), side);
-          group.position.x = side * (10.3 + (index % 3) * 0.7);
+          group.position.x = side * (13.1 + (index % 3) * 0.7);
           group.rotation.y = side > 0 ? -0.035 : 0.035;
           scene.add(group);
           roadsideBlocks.push({ group, baseDistance: index * blockSpacing + (side > 0 ? blockSpacing / 2 : 0) });
@@ -581,6 +588,21 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           roadsideProps.push({
             group,
             baseDistance: index * propSpacing + (side > 0 ? propSpacing / 2 : 0),
+          });
+        }
+      }
+      const sidewalkPeople: Array<{ group: THREE.Group; baseDistance: number; phase: number }> = [];
+      const peopleSpacing = 18;
+      const peopleLoop = 16 * peopleSpacing;
+      for (const side of [-1, 1]) {
+        for (let index = 0; index < 16; index += 1) {
+          const group = createSidewalkLife(index + (side > 0 ? 3 : 0), side);
+          group.position.x = side * (8.25 + (index % 2) * 0.55);
+          scene.add(group);
+          sidewalkPeople.push({
+            group,
+            baseDistance: index * peopleSpacing + (side > 0 ? peopleSpacing / 2 : 0),
+            phase: index * 0.83 + (side > 0 ? 0.45 : 0),
           });
         }
       }
@@ -713,6 +735,12 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const relativeDistance = ((prop.baseDistance - myDistance) % propLoop + propLoop) % propLoop;
           prop.group.position.z = 18 - relativeDistance;
           prop.group.visible = relativeDistance < 150;
+        }
+        for (const person of sidewalkPeople) {
+          const relativeDistance = ((person.baseDistance - myDistance) % peopleLoop + peopleLoop) % peopleLoop;
+          person.group.position.z = 18 - relativeDistance;
+          person.group.position.y = Math.max(0, Math.sin(now * 0.004 + person.phase) * 0.035);
+          person.group.visible = relativeDistance < 115;
         }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
