@@ -92,6 +92,10 @@ const VALID_VEHICLES = new Set(['auto', 'scooty', 'thar']);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOT_NAMES = ['Rex', 'Kaka', 'Bijli', 'Maya'];
 const BOT_VEHICLES = ['thar', 'auto', 'scooty', 'auto'];
+// A round must always resolve at a live event. At 20 ticks per second this is
+// two and a half minutes, giving players ample time to race while preventing
+// an abandoned browser tab from keeping a match active forever.
+const MAX_MATCH_TICKS = 3_000n;
 
 export const init = spacetimedb.init(ctx => {
   ctx.db.match.insert({
@@ -304,15 +308,23 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     }
   }
 
-  const alive = [...ctx.db.player_vitals.match_id.filter(timer.match_id)].filter(row => !row.eliminated);
-  if (alive.length <= 1) {
-    if (alive[0]) {
-      const winnerVitals = ctx.db.player_vitals.player_id.find(alive[0].player_id);
+  const allVitals = [...ctx.db.player_vitals.match_id.filter(timer.match_id)];
+  const alive = allVitals.filter(row => !row.eliminated);
+  const timedOut = nextTick >= MAX_MATCH_TICKS;
+  if (alive.length <= 1 || timedOut) {
+    // A normal round ends with the sole surviving racer. If time runs out,
+    // award the round to the highest distance score so every round has a
+    // deterministic result rather than leaving an event lobby stuck active.
+    const winner = alive.length === 1
+      ? alive[0]
+      : [...allVitals].sort((a, b) => b.score - a.score || Number(a.player_id - b.player_id))[0];
+    if (winner) {
+      const winnerVitals = ctx.db.player_vitals.player_id.find(winner.player_id);
       if (winnerVitals) ctx.db.player_vitals.player_id.update({ ...winnerVitals, rank: 1 });
     }
     ctx.db.match.match_id.update({
       ...selectedMatch, tick_count: nextTick, state: 'finished',
-      finished_at: ctx.timestamp, winner_player_id: alive[0]?.player_id,
+      finished_at: ctx.timestamp, winner_player_id: winner?.player_id,
     });
     ctx.db.game_tick_schedule.scheduled_id.delete(timer.scheduled_id);
     return;
