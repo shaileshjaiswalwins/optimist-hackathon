@@ -40,6 +40,7 @@ export default async function handler(req: any, res: any) {
       body: JSON.stringify({
         from: fromEmail,
         to: email,
+        reply_to: process.env.REPLY_TO_EMAIL || undefined,
         subject: '🏎️ Jaldi Ghar Pahuncho — Thanks for Racing With Us!',
         html: renderWelcomeEmailHtml(safeName),
         text: renderWelcomeEmailText(safeName),

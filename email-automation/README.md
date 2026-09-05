@@ -40,6 +40,9 @@ hosts the game.
      this project; ask Tannita for it rather than creating a new one)
    - `FROM_EMAIL` — e.g. `Jaldi Ghar Pahuncho <team@yourdomain.com>` (see
      domain step below)
+   - `REPLY_TO_EMAIL` — a real inbox someone actually checks (e.g. an
+     organizer's Gmail). Without this, player replies go to `FROM_EMAIL`,
+     which in sandbox mode is Resend's own address that nobody can read.
 
 4. **Before this can email real attendees**, verify a domain at
    [resend.com/domains](https://resend.com/domains) (a few DNS records) and

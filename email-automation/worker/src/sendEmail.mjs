@@ -3,6 +3,7 @@ import { renderWelcomeEmailHtml, renderWelcomeEmailText } from './emailTemplate.
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Jaldi Ghar Pahuncho <onboarding@resend.dev>';
+const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL;
 
 export async function sendWelcomeEmail(toEmail, name) {
   if (!RESEND_API_KEY) {
@@ -18,6 +19,7 @@ export async function sendWelcomeEmail(toEmail, name) {
     body: JSON.stringify({
       from: FROM_EMAIL,
       to: toEmail,
+      reply_to: REPLY_TO_EMAIL || undefined,
       subject: "🏎️ Jaldi Ghar Pahuncho — Thanks for Racing With Us!",
       html: renderWelcomeEmailHtml(name),
       text: renderWelcomeEmailText(name),
