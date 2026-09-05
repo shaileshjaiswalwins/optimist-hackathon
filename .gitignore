@@ -1,0 +1,9 @@
+node_modules
+dist
+*.log
+*.tsbuildinfo
+.npm-cache
+
+.DS_Store
+
+spacetime.local.json
