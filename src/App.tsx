@@ -2,6 +2,7 @@ import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRe
 import { useReducer, useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { reducers, tables } from './module_bindings';
 import { GameScene } from './GameScene';
+import { VehicleDebugPanel } from './VehicleDebugPanel';
 import './styles.css';
 
 const vehicles = [
@@ -150,6 +151,7 @@ function App() {
     return (
       <main className="game-page">
         <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} input={driving} onReady={() => setSceneReady(true)} />
+        <VehicleDebugPanel />
         {!sceneReady && <div className="scene-loading" role="status" aria-live="polite"><div className="scene-loading-card"><span className="road-spinner" /><p>Preparing the Bengaluru streets…</p><small>Getting your ride and traffic ready</small></div></div>}
         <header className="hud top-hud">
           <div><small>{Math.round(myPosition?.speed ?? 0)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>

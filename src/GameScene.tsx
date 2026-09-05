@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import type { RigidBody } from '@dimforge/rapier3d-compat';
+import type { DynamicRayCastVehicleController, RigidBody } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { vehicleTuning } from './vehiclePhysics';
 
 const TRAFFIC_ASSETS = [
   '/assets/kenney/car-kit/sedan.glb',
@@ -591,62 +592,100 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
         }
       }
 
-      const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+      // The local chassis is intentionally client-only: SpacetimeDB continues
+      // to own scoring, collisions, and all game rules. Rapier gives the
+      // player vehicle a stable physical feel between authoritative updates.
+      const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+      world.createCollider(RAPIER.ColliderDesc.cuboid(7, 0.08, 12000).setTranslation(0, -0.08, 0));
       const carMeshes = new Map<string, THREE.Group>();
       const carBodies = new Map<string, RigidBody>();
       const obstacleMeshes = new Map<string, THREE.Group>();
       const obstacleBodies = new Map<string, RigidBody>();
       let localDriveBody: RigidBody | undefined;
+      let localVehicle: DynamicRayCastVehicleController | undefined;
       let physicsAccumulator = 0;
       const fixedPhysicsStep = 1 / 60;
+      let lastMass = -1;
+      let previousPhysicsX = 0;
+      let previousPhysicsZ = 0;
+      let currentPhysicsX = 0;
+      let currentPhysicsZ = 0;
+      const correctionImpulse = { x: 0, y: 0, z: 0 };
+
+      const configureWheel = (wheel: number) => {
+        const vehicle = localVehicle;
+        if (!vehicle) return;
+        vehicle.setWheelSuspensionStiffness(wheel, vehicleTuning.suspensionStiffness);
+        vehicle.setWheelSuspensionCompression(wheel, vehicleTuning.suspensionCompression);
+        vehicle.setWheelSuspensionRelaxation(wheel, vehicleTuning.suspensionRelaxation);
+        vehicle.setWheelMaxSuspensionForce(wheel, vehicleTuning.suspensionMaxForce);
+        vehicle.setWheelFrictionSlip(wheel, vehicleTuning.tireGrip);
+        vehicle.setWheelSideFrictionStiffness(wheel, vehicleTuning.sideFriction);
+      };
 
       const ensureLocalDriveBody = (x: number, distance: number) => {
         if (localDriveBody) return localDriveBody;
         localDriveBody = world.createRigidBody(
           RAPIER.RigidBodyDesc.dynamic()
-            .setTranslation(x, 0.45, -distance)
-            .setLinearDamping(1.85)
-            .setAngularDamping(5.5)
+            .setTranslation(x, 0.72, -distance)
+            .setLinearDamping(0.12)
+            .setAngularDamping(1.6)
             .setCanSleep(false)
         );
-        // This small body supplies real mass/inertia for the local drive
-        // controller. Match collisions remain server-authoritative.
-        world.createCollider(RAPIER.ColliderDesc.cuboid(0.62, 0.28, 1.05), localDriveBody);
+        // A compact hatchback chassis with its center of mass lifted enough
+        // for visible roll and brake dive, while still remaining controllable.
+        world.createCollider(RAPIER.ColliderDesc.cuboid(0.62, 0.22, 1.05).setTranslation(0, 0.1, 0), localDriveBody);
+        localDriveBody.setAdditionalMass(vehicleTuning.massKg, true);
+        lastMass = vehicleTuning.massKg;
+        localVehicle = world.createVehicleController(localDriveBody);
+        localVehicle.indexUpAxis = 1;
+        // Rapier's generated types name this setter incorrectly. The runtime
+        // property is still the forward-axis setter and keeps Z as forward.
+        localVehicle.setIndexForwardAxis = 2;
+        const wheelPoints = [
+          { x: -0.53, y: 0.08, z: -0.78 }, { x: 0.53, y: 0.08, z: -0.78 },
+          { x: -0.53, y: 0.08, z: 0.78 }, { x: 0.53, y: 0.08, z: 0.78 },
+        ];
+        for (const point of wheelPoints) {
+          localVehicle.addWheel(point, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, vehicleTuning.suspensionRestLength, 0.28);
+          configureWheel(localVehicle.numWheels() - 1);
+        }
+        previousPhysicsX = currentPhysicsX = x;
+        previousPhysicsZ = currentPhysicsZ = -distance;
         return localDriveBody;
       };
 
-      const yawFromRotation = (rotation: { x: number; y: number; z: number; w: number }) =>
-        Math.atan2(2 * (rotation.w * rotation.y + rotation.x * rotation.z), 1 - 2 * (rotation.y * rotation.y + rotation.z * rotation.z));
-
       const stepLocalVehicle = () => {
-        if (!localDriveBody) return;
-        const velocity = localDriveBody.linvel();
-        const speed = Math.hypot(velocity.x, velocity.z);
-        const yaw = yawFromRotation(localDriveBody.rotation());
-        const engineImpulse = input.current.throttle * (input.current.boost ? 36 : 23) * fixedPhysicsStep;
-        localDriveBody.applyImpulse({
-          x: Math.sin(yaw) * engineImpulse,
-          y: 0,
-          z: -Math.cos(yaw) * engineImpulse,
-        }, true);
-        const steeringStrength = Math.min(1.25, 0.25 + speed * 0.08);
-        const angularVelocity = localDriveBody.angvel().y;
-        localDriveBody.applyTorqueImpulse({
-          x: 0,
-          y: input.current.steering * steeringStrength * fixedPhysicsStep - yaw * 0.46 * fixedPhysicsStep - angularVelocity * 0.16 * fixedPhysicsStep,
-          z: 0,
-        }, true);
-        const maxSpeed = input.current.boost ? 31 : 24;
-        if (speed > maxSpeed) {
-          const ratio = maxSpeed / speed;
-          localDriveBody.setLinvel({ x: velocity.x * ratio, y: 0, z: velocity.z * ratio }, true);
+        if (!localDriveBody || !localVehicle) return;
+        if (lastMass !== vehicleTuning.massKg) {
+          localDriveBody.setAdditionalMass(vehicleTuning.massKg, true);
+          lastMass = vehicleTuning.massKg;
         }
+        const speedKmh = Math.abs(localVehicle.currentVehicleSpeed()) * 3.6;
+        const steeringScale = THREE.MathUtils.lerp(1, vehicleTuning.highSpeedSteeringFactor, Math.min(speedKmh / vehicleTuning.topSpeedKmh, 1));
+        const steering = input.current.steering * vehicleTuning.maxSteeringAngle * steeringScale;
+        const engine = input.current.throttle && speedKmh < vehicleTuning.topSpeedKmh
+          ? -vehicleTuning.engineForce * (input.current.boost ? 1.16 : 1)
+          : 0;
+        const brake = input.current.throttle ? 0 : vehicleTuning.brakeForce * 0.18;
+        for (let wheel = 0; wheel < 4; wheel += 1) {
+          configureWheel(wheel);
+          localVehicle.setWheelSteering(wheel, wheel < 2 ? steering : 0);
+          localVehicle.setWheelEngineForce(wheel, wheel >= 2 ? engine : 0);
+          localVehicle.setWheelBrake(wheel, brake);
+        }
+        localVehicle.updateVehicle(fixedPhysicsStep);
         world.timestep = fixedPhysicsStep;
         world.step();
         const translation = localDriveBody.translation();
+        previousPhysicsX = currentPhysicsX;
+        previousPhysicsZ = currentPhysicsZ;
+        currentPhysicsX = translation.x;
+        currentPhysicsZ = translation.z;
         if (translation.x < -4.65 || translation.x > 4.65) {
-          localDriveBody.setTranslation({ x: THREE.MathUtils.clamp(translation.x, -4.65, 4.65), y: 0.45, z: translation.z }, true);
+          localDriveBody.setTranslation({ x: THREE.MathUtils.clamp(translation.x, -4.65, 4.65), y: translation.y, z: translation.z }, true);
           localDriveBody.setLinvel({ x: 0, y: 0, z: localDriveBody.linvel().z }, true);
+          currentPhysicsX = THREE.MathUtils.clamp(currentPhysicsX, -4.65, 4.65);
         }
       };
 
@@ -693,14 +732,15 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
           // SpacetimeDB's authoritative result. A large error means a new
           // round/reconnect and is safely reset in one step.
           if (Math.abs(translation.x - authoritativeMe.x) > 5 || Math.abs(translation.z - serverZ) > 12) {
-            body.setTranslation({ x: authoritativeMe.x, y: 0.45, z: serverZ }, true);
+            body.setTranslation({ x: authoritativeMe.x, y: 0.72, z: serverZ }, true);
             body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+            previousPhysicsX = currentPhysicsX = authoritativeMe.x;
+            previousPhysicsZ = currentPhysicsZ = serverZ;
           } else {
-            body.applyImpulse({
-              x: (authoritativeMe.x - translation.x) * 0.045,
-              y: 0,
-              z: (serverZ - translation.z) * 0.045,
-            }, true);
+            correctionImpulse.x = (authoritativeMe.x - translation.x) * 0.045;
+            correctionImpulse.y = 0;
+            correctionImpulse.z = (serverZ - translation.z) * 0.045;
+            body.applyImpulse(correctionImpulse, true);
           }
         }
         physicsAccumulator += dt;
@@ -709,9 +749,9 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
           physicsAccumulator -= fixedPhysicsStep;
         }
         if (localDriveBody) {
-          const translation = localDriveBody.translation();
-          predictedX = translation.x;
-          predictedDistance = -translation.z;
+          const alpha = physicsAccumulator / fixedPhysicsStep;
+          predictedX = THREE.MathUtils.lerp(previousPhysicsX, currentPhysicsX, alpha);
+          predictedDistance = -THREE.MathUtils.lerp(previousPhysicsZ, currentPhysicsZ, alpha);
         } else {
           predictedX = authoritativeMe?.x ?? 0;
           predictedDistance = authoritativeMe?.distance ?? 0;
@@ -841,7 +881,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, o
       resize();
       window.addEventListener('resize', resize);
 
-      return () => window.removeEventListener('resize', resize);
+      return () => {
+        window.removeEventListener('resize', resize);
+        localVehicle?.free();
+        world.free();
+      };
     }
 
     let removeResize: (() => void) | undefined;
