@@ -42,16 +42,19 @@ const player_vitals = table({ name: 'player_vitals', public: true }, {
 const player_position = table({ name: 'player_position', public: true }, {
   player_id: t.u64().primaryKey(),
   match_id: t.u64().index('btree'),
-  lane: t.i8(),
+  x: t.f32(),
   distance: t.f32(),
   speed: t.f32(),
+  steering: t.f32(),
+  throttle: t.f32(),
+  boost: t.bool(),
   input_seq: t.u32(),
 });
 
 const obstacle = table({ name: 'obstacle', public: true }, {
   obstacle_id: t.u64().primaryKey().autoInc(),
   match_id: t.u64().index('btree'),
-  lane: t.i8(),
+  x: t.f32(),
   distance: t.f32(),
   active: t.bool(),
   spawned_at_tick: t.u64(),
@@ -148,8 +151,10 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
   racers.forEach((racer, index) => {
     ctx.db.player_position.insert({
       player_id: racer.player_id, match_id,
-      lane: (index % 3) - 1, distance: index * -3,
-      speed: racer.is_bot ? 19 + (index % 3) : 20, input_seq: 0,
+      x: ((index % 3) - 1) * 3.2, distance: index * -3,
+      speed: racer.is_bot ? 17 + (index % 3) : 12,
+      steering: 0, throttle: racer.is_bot ? 0.72 : 0,
+      boost: false, input_seq: 0,
     });
   });
 
@@ -162,14 +167,14 @@ export const startMatch = spacetimedb.reducer({ match_id: t.u64() }, (ctx, { mat
 });
 
 export const setDrivingInput = spacetimedb.reducer({
-  player_id: t.u64(), lane: t.i8(), boost: t.bool(), input_seq: t.u32(),
-}, (ctx, { player_id, lane, boost, input_seq }) => {
+  player_id: t.u64(), steering: t.f32(), throttle: t.f32(), boost: t.bool(), input_seq: t.u32(),
+}, (ctx, { player_id, steering, throttle, boost, input_seq }) => {
   const profile = ctx.db.player_profile.player_id.find(player_id);
   const position = ctx.db.player_position.player_id.find(player_id);
   if (!profile?.identity?.equals(ctx.sender) || !position) throw new SenderError('You cannot control this racer.');
-  if (lane < -1 || lane > 1) throw new SenderError('Lane is outside the road.');
+  if (steering < -1 || steering > 1 || throttle < 0 || throttle > 1) throw new SenderError('Invalid driving input.');
   if (input_seq <= position.input_seq) return;
-  ctx.db.player_position.player_id.update({ ...position, lane, speed: boost ? 28 : 20, input_seq });
+  ctx.db.player_position.player_id.update({ ...position, steering, throttle, boost, input_seq });
 });
 
 export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType }, (ctx, { timer }) => {
@@ -182,12 +187,15 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     const vitals = ctx.db.player_vitals.player_id.find(profile.player_id);
     const position = ctx.db.player_position.player_id.find(profile.player_id);
     if (!vitals || !position || vitals.eliminated) continue;
-    let lane = position.lane;
+    let steering = position.steering;
     if (profile.is_bot && nextTick % BigInt(11 + Number(profile.player_id % 5n)) === 0n) {
-      lane = ctx.random.integerInRange(-1, 1);
+      steering = ctx.random.integerInRange(-1, 1);
     }
-    const distance = position.distance + position.speed * 0.1;
-    ctx.db.player_position.player_id.update({ ...position, lane, distance });
+    const targetSpeed = 8 + position.throttle * 16 + (position.boost ? 7 : 0);
+    const speed = position.speed + (targetSpeed - position.speed) * 0.14;
+    const x = Math.max(-4.65, Math.min(4.65, position.x + steering * (3.2 + speed * 0.12) * 0.1));
+    const distance = position.distance + speed * 0.1;
+    ctx.db.player_position.player_id.update({ ...position, x, speed, steering, distance });
     ctx.db.player_vitals.player_id.update({ ...vitals, score: Math.max(vitals.score, Math.floor(distance)) });
   }
 
@@ -195,7 +203,7 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     const lead = Math.max(0, ...[...ctx.db.player_position.match_id.filter(timer.match_id)].map(row => row.distance));
     ctx.db.obstacle.insert({
       obstacle_id: 0n, match_id: timer.match_id,
-      lane: ctx.random.integerInRange(-1, 1), distance: lead + 72,
+      x: ctx.random.integerInRange(-1, 1) * 3.2, distance: lead + 72,
       active: true, spawned_at_tick: nextTick,
     });
   }
@@ -207,8 +215,8 @@ export const gameTick = spacetimedb.reducer({ timer: game_tick_schedule.rowType 
     ctx.db.obstacle.obstacle_id.update(moved);
     for (const position of ctx.db.player_position.match_id.filter(timer.match_id)) {
       const vitals = ctx.db.player_vitals.player_id.find(position.player_id);
-      if (!vitals || vitals.eliminated || position.lane !== moved.lane) continue;
-      if (Math.abs(position.distance - moved.distance) > 2.6) continue;
+      if (!vitals || vitals.eliminated || Math.abs(position.x - moved.x) > 1.35) continue;
+      if (Math.abs(position.distance - moved.distance) > 2.8) continue;
       const strikes = Math.max(0, vitals.strikes_remaining - 1);
       const eliminated = strikes === 0;
       const racersAlive = [...ctx.db.player_vitals.match_id.filter(timer.match_id)].filter(row => !row.eliminated).length;

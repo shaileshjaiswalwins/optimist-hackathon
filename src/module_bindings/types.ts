@@ -40,7 +40,7 @@ export type Match = __Infer<typeof Match>;
 export const Obstacle = __t.object("Obstacle", {
   obstacleId: __t.u64(),
   matchId: __t.u64(),
-  lane: __t.i8(),
+  x: __t.f32(),
   distance: __t.f32(),
   active: __t.bool(),
   spawnedAtTick: __t.u64(),
@@ -58,9 +58,12 @@ export type PlayerContact = __Infer<typeof PlayerContact>;
 export const PlayerPosition = __t.object("PlayerPosition", {
   playerId: __t.u64(),
   matchId: __t.u64(),
-  lane: __t.i8(),
+  x: __t.f32(),
   distance: __t.f32(),
   speed: __t.f32(),
+  steering: __t.f32(),
+  throttle: __t.f32(),
+  boost: __t.bool(),
   inputSeq: __t.u32(),
 });
 export type PlayerPosition = __Infer<typeof PlayerPosition>;

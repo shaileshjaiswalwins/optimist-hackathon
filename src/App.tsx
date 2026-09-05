@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useReducer, useSpacetimeDB, useTable } from 'spacetimedb/react';
 import { reducers, tables } from './module_bindings';
 import { GameScene } from './GameScene';
@@ -28,6 +28,7 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const inputSeq = useRef(0);
+  const driving = useRef({ steering: 0, throttle: 0, boost: false });
 
   const myProfile = profiles.find(profile =>
     profile.identity?.toHexString() === identity?.toHexString()
@@ -79,10 +80,41 @@ function App() {
     }
   }
 
-  function drive(nextLane: number, boost = false) {
-    if (!myProfile) return;
-    inputSeq.current += 1;
-    setDrivingInput({ playerId: myProfile.playerId, lane: Math.max(-1, Math.min(1, nextLane)), boost, inputSeq: inputSeq.current }).catch(console.error);
+  useEffect(() => {
+    if (!myProfile || currentMatch?.state !== 'active') return;
+    const playerId = myProfile.playerId;
+    const send = () => {
+      inputSeq.current += 1;
+      setDrivingInput({ playerId, ...driving.current, inputSeq: inputSeq.current }).catch(console.error);
+    };
+    const keyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') driving.current.steering = -1;
+      if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') driving.current.steering = 1;
+      if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') driving.current.throttle = 1;
+      if (event.key === 'Shift') driving.current.boost = true;
+    };
+    const keyUp = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') driving.current.steering = 0;
+      if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') driving.current.steering = 0;
+      if (event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') driving.current.throttle = 0;
+      if (event.key === 'Shift') driving.current.boost = false;
+    };
+    const release = () => { driving.current = { steering: 0, throttle: 0, boost: false }; };
+    window.addEventListener('keydown', keyDown);
+    window.addEventListener('keyup', keyUp);
+    window.addEventListener('blur', release);
+    const timer = window.setInterval(send, 100);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('keydown', keyDown);
+      window.removeEventListener('keyup', keyUp);
+      window.removeEventListener('blur', release);
+      release();
+    };
+  }, [currentMatch?.state, myProfile, setDrivingInput]);
+
+  function holdControl(control: Partial<typeof driving.current>) {
+    driving.current = { ...driving.current, ...control };
   }
 
   if (myProfile && currentMatch?.state === 'active') {
@@ -97,7 +129,7 @@ function App() {
       <main className="game-page">
         <GameScene myPlayerId={myProfile.playerId} profiles={participants} positions={matchPositions} obstacles={matchObstacles} />
         <header className="hud top-hud">
-          <div><small>Distance</small><strong>{myVitals?.score ?? 0}m</strong></div>
+          <div><small>{Math.round(myPosition?.speed ?? 0)} km/h</small><strong>{myVitals?.score ?? 0}m</strong></div>
           <div className="hud-title">GHAR JALDI PAHUNCHO</div>
           <div className="health" aria-label={`${myVitals?.strikesRemaining ?? 3} strikes remaining`}>
             {Array.from({ length: 3 }, (_, index) => <span className={index < (myVitals?.strikesRemaining ?? 3) ? 'live' : ''} key={index}>●</span>)}
@@ -113,9 +145,14 @@ function App() {
         </aside>
         {myVitals?.eliminated && <div className="game-message"><h2>You’re out!</h2><p>Watch the race finish live.</p></div>}
         <div className="controls hud">
-          <button onPointerDown={() => drive((myPosition?.lane ?? 0) - 1)} aria-label="Move left">←</button>
-          <button className="boost" onPointerDown={() => drive(myPosition?.lane ?? 0, true)} onPointerUp={() => drive(myPosition?.lane ?? 0, false)}>BOOST</button>
-          <button onPointerDown={() => drive((myPosition?.lane ?? 0) + 1)} aria-label="Move right">→</button>
+          <div className="steering-controls">
+            <button onPointerDown={() => holdControl({ steering: -1 })} onPointerUp={() => holdControl({ steering: 0 })} onPointerCancel={() => holdControl({ steering: 0 })} aria-label="Steer left">←</button>
+            <button onPointerDown={() => holdControl({ steering: 1 })} onPointerUp={() => holdControl({ steering: 0 })} onPointerCancel={() => holdControl({ steering: 0 })} aria-label="Steer right">→</button>
+          </div>
+          <div className="speed-controls">
+            <button className="boost" onPointerDown={() => holdControl({ boost: true })} onPointerUp={() => holdControl({ boost: false })} onPointerCancel={() => holdControl({ boost: false })}>BOOST</button>
+            <button className="accelerate" onPointerDown={() => holdControl({ throttle: 1 })} onPointerUp={() => holdControl({ throttle: 0 })} onPointerCancel={() => holdControl({ throttle: 0 })}>RACE</button>
+          </div>
         </div>
       </main>
     );

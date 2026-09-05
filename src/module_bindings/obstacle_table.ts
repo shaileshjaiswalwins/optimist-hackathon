@@ -13,7 +13,7 @@ import {
 export default __t.row({
   obstacleId: __t.u64().primaryKey().name("obstacle_id"),
   matchId: __t.u64().name("match_id"),
-  lane: __t.i8(),
+  x: __t.f32(),
   distance: __t.f32(),
   active: __t.bool(),
   spawnedAtTick: __t.u64().name("spawned_at_tick"),

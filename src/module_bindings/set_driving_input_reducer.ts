@@ -12,7 +12,8 @@ import {
 
 export default {
   playerId: __t.u64(),
-  lane: __t.i8(),
+  steering: __t.f32(),
+  throttle: __t.f32(),
   boost: __t.bool(),
   inputSeq: __t.u32(),
 };

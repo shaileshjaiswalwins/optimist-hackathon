@@ -13,8 +13,11 @@ import {
 export default __t.row({
   playerId: __t.u64().primaryKey().name("player_id"),
   matchId: __t.u64().name("match_id"),
-  lane: __t.i8(),
+  x: __t.f32(),
   distance: __t.f32(),
   speed: __t.f32(),
+  steering: __t.f32(),
+  throttle: __t.f32(),
+  boost: __t.bool(),
   inputSeq: __t.u32().name("input_seq"),
 });

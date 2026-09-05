@@ -11,13 +11,14 @@ type Profile = {
 
 type Position = {
   playerId: bigint;
-  lane: number;
+  x: number;
   distance: number;
+  steering: number;
 };
 
 type Obstacle = {
   obstacleId: bigint;
-  lane: number;
+  x: number;
   distance: number;
   active: boolean;
 };
@@ -28,8 +29,6 @@ type Props = {
   positions: readonly Position[];
   obstacles: readonly Obstacle[];
 };
-
-const LANE_X = [-3.2, 0, 3.2];
 
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
@@ -176,12 +175,14 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
         scene.add(verge);
       }
       const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf3e8bd });
+      const roadMarkers: Array<{ mesh: THREE.Mesh; baseZ: number }> = [];
       for (const x of [-1.6, 1.6]) {
         for (let z = -210; z < 30; z += 10) {
           const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 5), stripeMaterial);
           stripe.rotation.x = -Math.PI / 2;
           stripe.position.set(x, 0.012, z);
           scene.add(stripe);
+          roadMarkers.push({ mesh: stripe, baseZ: z });
         }
       }
 
@@ -226,11 +227,12 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
           const mesh = carMeshes.get(key);
           const body = carBodies.get(key);
           if (!mesh || !body) continue;
-          const targetX = LANE_X[position.lane + 1] ?? 0;
+          const targetX = position.x;
           const targetZ = position.playerId === myPlayerId ? 4 : 4 - (position.distance - myDistance);
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 11, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 9, dt);
-          mesh.rotation.y = position.playerId === myPlayerId ? 0 : 0;
+          mesh.rotation.y = THREE.MathUtils.damp(mesh.rotation.y, -position.steering * 0.13, 10, dt);
+          mesh.rotation.z = THREE.MathUtils.damp(mesh.rotation.z, -position.steering * 0.07, 10, dt);
           body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.8, z: mesh.position.z });
         }
 
@@ -240,7 +242,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
           const mesh = obstacleMeshes.get(key)!;
           const body = obstacleBodies.get(key)!;
           mesh.visible = current.active;
-          const targetX = LANE_X[current.lane + 1] ?? 0;
+          const targetX = current.x;
           const targetZ = 4 - (current.distance - myDistance);
           mesh.position.x = THREE.MathUtils.damp(mesh.position.x, targetX, 14, dt);
           mesh.position.z = THREE.MathUtils.damp(mesh.position.z, targetZ, 12, dt);
@@ -248,6 +250,12 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles }: Props)
           body.setEnabled(current.active);
           if (current.active) body.setNextKinematicTranslation({ x: mesh.position.x, y: 0.9, z: mesh.position.z });
         }
+
+        const roadOffset = myDistance % 10;
+        for (const marker of roadMarkers) marker.mesh.position.z = marker.baseZ + roadOffset;
+        const myX = positionsRef.current.find(row => row.playerId === myPlayerId)?.x ?? 0;
+        camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
+        camera.lookAt(myX * 0.12, 0.5, -20);
 
         world.step();
         renderer.render(scene, camera);
