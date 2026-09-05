@@ -1,6 +1,23 @@
 import { useEffect, useRef } from 'react';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const TRAFFIC_ASSETS = [
+  '/assets/kenney/car-kit/sedan.glb',
+  '/assets/kenney/car-kit/taxi.glb',
+  '/assets/kenney/car-kit/delivery.glb',
+  '/assets/kenney/car-kit/ambulance.glb',
+  '/assets/kenney/car-kit/truck.glb',
+  '/assets/kenney/car-kit/police.glb',
+];
+
+const ROADSIDE_ASSETS = [
+  { url: '/assets/kenney/city-kit-roads/light-curved.glb', height: 5.8 },
+  { url: '/assets/kenney/city-kit-roads/traffic-light.glb', height: 4.6 },
+  { url: '/assets/kenney/city-kit-roads/road-sign-warning.glb', height: 2.4 },
+  { url: '/assets/kenney/city-kit-roads/construction-barrier.glb', height: 0.85 },
+];
 
 type Profile = {
   playerId: bigint;
@@ -121,6 +138,24 @@ function createTrafficVehicle(variant: number) {
   return group;
 }
 
+function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = false) {
+  const container = new THREE.Group();
+  const model = source.clone(true);
+  container.add(model);
+  model.updateMatrixWorld(true);
+  const initialBounds = new THREE.Box3().setFromObject(model);
+  const size = initialBounds.getSize(new THREE.Vector3());
+  const referenceSize = byHeight ? size.y : Math.max(size.x, size.z);
+  model.scale.setScalar(referenceSize > 0 ? targetSize / referenceSize : 1);
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const center = bounds.getCenter(new THREE.Vector3());
+  model.position.x -= center.x;
+  model.position.y -= bounds.min.y;
+  model.position.z -= center.z;
+  return container;
+}
+
 function createRoadsideBlock(index: number, side: number) {
   const group = new THREE.Group();
   const palettes = [0xe6a15c, 0x75a6a4, 0xd87668, 0xd1b36a, 0x8c83a8, 0xb9c477];
@@ -196,6 +231,27 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       sun.position.set(-8, 18, 10);
       scene.add(sun);
 
+      const assetLoader = new GLTFLoader();
+      const trafficTemplates = await Promise.all(TRAFFIC_ASSETS.map(async (url, index) => {
+        try {
+          const asset = await assetLoader.loadAsync(url);
+          return normalizeAsset(asset.scene, index === 2 || index === 4 ? 4.8 : 3.8);
+        } catch (error) {
+          console.warn(`Could not load traffic asset ${url}; using fallback model.`, error);
+          return undefined;
+        }
+      }));
+      const roadsideTemplates = await Promise.all(ROADSIDE_ASSETS.map(async ({ url, height }) => {
+        try {
+          const asset = await assetLoader.loadAsync(url);
+          return normalizeAsset(asset.scene, height, true);
+        } catch (error) {
+          console.warn(`Could not load roadside asset ${url}.`, error);
+          return undefined;
+        }
+      }));
+      if (disposed) return;
+
       const road = new THREE.Mesh(
         new THREE.PlaneGeometry(13, 260),
         new THREE.MeshLambertMaterial({ color: 0x343b3e })
@@ -235,6 +291,23 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           roadsideBlocks.push({ group, baseDistance: index * blockSpacing + (side > 0 ? blockSpacing / 2 : 0) });
         }
       }
+      const roadsideProps: Array<{ group: THREE.Group; baseDistance: number }> = [];
+      const propSpacing = 22;
+      const propLoop = 18 * propSpacing;
+      for (const side of [-1, 1]) {
+        for (let index = 0; index < 18; index += 1) {
+          const template = roadsideTemplates[index % roadsideTemplates.length];
+          if (!template) continue;
+          const group = template.clone(true);
+          group.position.x = side * 7.25;
+          group.rotation.y = side > 0 ? Math.PI : 0;
+          scene.add(group);
+          roadsideProps.push({
+            group,
+            baseDistance: index * propSpacing + (side > 0 ? propSpacing / 2 : 0),
+          });
+        }
+      }
 
       const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
       const carMeshes = new Map<string, THREE.Group>();
@@ -258,7 +331,8 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
       const ensureObstacle = (obstacle: Obstacle, initialZ: number) => {
         const key = obstacle.obstacleId.toString();
         if (obstacleMeshes.has(key)) return;
-        const mesh = createTrafficVehicle(Number(obstacle.obstacleId % 3n));
+        const variant = Number(obstacle.obstacleId % BigInt(trafficTemplates.length));
+        const mesh = trafficTemplates[variant]?.clone(true) ?? createTrafficVehicle(variant % 3);
         mesh.position.set(obstacle.x, 0, initialZ);
         scene.add(mesh);
         const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
@@ -342,6 +416,11 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
           const relativeDistance = ((block.baseDistance - myDistance) % blockLoop + blockLoop) % blockLoop;
           block.group.position.z = 18 - relativeDistance;
           block.group.visible = relativeDistance < 150;
+        }
+        for (const prop of roadsideProps) {
+          const relativeDistance = ((prop.baseDistance - myDistance) % propLoop + propLoop) % propLoop;
+          prop.group.position.z = 18 - relativeDistance;
+          prop.group.visible = relativeDistance < 150;
         }
         const myX = predictedX;
         camera.position.x = THREE.MathUtils.damp(camera.position.x, myX * 0.22, 4, dt);
