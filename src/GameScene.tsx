@@ -165,6 +165,82 @@ function normalizeAsset(source: THREE.Group, targetSize: number, byHeight = fals
   return container;
 }
 
+const streetSignMaterials = new Map<string, THREE.MeshBasicMaterial>();
+
+function streetSign(label: string, background: string, width: number) {
+  const key = `${label}:${background}`;
+  let material = streetSignMaterials.get(key);
+  if (!material) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 100;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = background;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fff7de';
+    context.font = '700 40px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(label, canvas.width / 2, canvas.height / 2 + 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    material = new THREE.MeshBasicMaterial({ map: texture });
+    streetSignMaterials.set(key, material);
+  }
+  return new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.3), material);
+}
+
+function addDistrictDetail(group: THREE.Group, district: number, width: number, depth: number, height: number, side: number) {
+  const front = -depth / 2 - 0.34;
+  const nearSide = side > 0 ? -1 : 1;
+  if (district === 0) {
+    // Market / chai lane: bold signs, striped shade and a few crates make it
+    // immediately recognisable from the chase camera.
+    const sign = streetSign(width > 5 ? 'KIRANA' : 'CHAI', '#9d352d', Math.min(width * 0.72, 3.5));
+    sign.position.set(0, 1.74, front);
+    group.add(sign);
+    for (const x of [-width * 0.3, 0, width * 0.3]) {
+      group.add(box(0.12, 0.48, 0.52, 0xf1d35b, x, 1.1, front - 0.04));
+    }
+    group.add(box(0.42, 0.32, 0xb9743c, nearSide * width * 0.4, 0.32, front - 0.32));
+    group.add(box(0.36, 0.25, 0x557e39, nearSide * width * 0.25, 0.25, front - 0.32));
+  } else if (district === 1) {
+    // Apartment zone: laundry and planter boxes add lived-in detail without
+    // adding animated characters or expensive textures.
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-width * 0.36, 3.45, front), new THREE.Vector3(width * 0.36, 3.45, front)]),
+      new THREE.LineBasicMaterial({ color: 0x4d443d })
+    );
+    group.add(line);
+    for (const [x, color] of [[-0.22, 0xe9d8b0], [0, 0x4f91a5], [0.22, 0xd96154]] as const) {
+      group.add(box(0.17, 0.28, 0.04, color, x * width, 3.26, front - 0.02));
+    }
+    group.add(box(width * 0.5, 0.18, 0.38, 0x4d7d3b, 0, 2.1, front - 0.2));
+  } else if (district === 2) {
+    // Construction zone: a scaffold and hazard board break up the skyline.
+    const scaffoldColor = 0xc88832;
+    for (const x of [-width * 0.38, width * 0.38]) {
+      group.add(box(0.1, Math.min(height * 0.74, 4.4), 0.1, scaffoldColor, x, 2.2, front - 0.24));
+    }
+    for (const y of [1.35, 2.55, 3.75]) group.add(box(width * 0.8, 0.1, 0.1, scaffoldColor, 0, y, front - 0.25));
+    const sign = streetSign('SLOW', '#e17d27', Math.min(width * 0.5, 2.4));
+    sign.position.set(nearSide * width * 0.58, 1.12, front - 0.62);
+    group.add(sign);
+    group.add(box(1.2, 0.44, 0.1, 0xf2c642, nearSide * width * 0.58, 0.55, front - 0.56));
+  } else {
+    // Transit zone: a clear bus-stop canopy and bench create a distinct
+    // landmark that players can read in one glance.
+    const stopX = nearSide * width * 0.58;
+    group.add(box(1.8, 0.12, 0.85, 0x2c5e77, stopX, 2.18, front - 0.54));
+    group.add(box(0.1, 2.1, 0.1, 0x31586b, stopX - 0.75, 1.08, front - 0.54));
+    group.add(box(0.1, 2.1, 0.1, 0x31586b, stopX + 0.75, 1.08, front - 0.54));
+    group.add(box(1.28, 0.18, 0.38, 0x714b32, stopX, 0.56, front - 0.54));
+    const sign = streetSign('BUS STOP', '#31586b', 1.45);
+    sign.position.set(stopX, 1.72, front - 0.99);
+    group.add(sign);
+  }
+}
+
 function createRoadsideBlock(index: number, side: number) {
   const group = new THREE.Group();
   const palettes = [0xe6a15c, 0x75a6a4, 0xd87668, 0xd1b36a, 0x8c83a8, 0xb9c477];
@@ -175,6 +251,7 @@ function createRoadsideBlock(index: number, side: number) {
   const height = floors * 1.65;
   const color = palettes[index % palettes.length];
   const awningColor = awningPalettes[index % awningPalettes.length];
+  const district = Math.floor(index / 5) % 4;
 
   // Footpath and a painted curb make the road feel like a real neighborhood
   // rather than buildings placed directly on grass.
@@ -233,6 +310,7 @@ function createRoadsideBlock(index: number, side: number) {
     group.add(box(1.22, 0.13, 0.9, 0xe2b84d, stallX, 0.98, -depth / 2 - 0.62));
     group.add(cylinder(0.12, 0.22, 0xd9d4bd, stallX - 0.25, 1.16, -depth / 2 - 0.75, 8));
   }
+  addDistrictDetail(group, district, width, depth, height, side);
   return group;
 }
 
