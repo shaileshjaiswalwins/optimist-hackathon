@@ -45,7 +45,6 @@ type Props = {
   obstacles: readonly Obstacle[];
   input: { current: { steering: number; throttle: number; boost: boolean } };
   quality: 'low' | 'medium' | 'high';
-  nightMode: boolean;
   onReady: () => void;
 };
 
@@ -59,7 +58,7 @@ function timeOfDay(hour: number) {
   if (hour >= 6 && hour < 9) return 'morning' as const;
   if (hour >= 9 && hour < 17) return 'noon' as const;
   if (hour >= 17 && hour < 19) return 'evening' as const;
-  return 'night' as const;
+  return 'morning' as const;
 }
 
 function box(w: number, h: number, d: number, color: number, x = 0, y = 0, z = 0) {
@@ -476,7 +475,7 @@ function createLandmark(name: string): THREE.LOD {
   return lod;
 }
 
-export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, nightMode, onReady }: Props) {
+export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
   const positionsRef = useRef(positions);
@@ -578,16 +577,6 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       road.receiveShadow = quality !== 'low';
       scene.add(road);
 
-      // A small pooled lighting rig gives night its mixed sodium/LED character
-      // without placing a light on every street prop.
-      const streetLights: THREE.PointLight[] = [];
-      for (let index = 0; index < 10; index += 1) {
-        const light = new THREE.PointLight(index % 2 ? 0xff9b48 : 0xd7ecff, 0, 11, 2);
-        light.position.set(index % 2 ? -7.7 : 7.7, 4.1, 8 - index * 18);
-        scene.add(light);
-        streetLights.push(light);
-      }
-
       const rainDrops = 220;
       const rainPositions = new Float32Array(rainDrops * 6);
       for (let index = 0; index < rainDrops; index += 1) {
@@ -621,7 +610,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         if (minute === lastEnvironmentMinute && weather === lastEnvironmentWeather) return;
         lastEnvironmentMinute = minute;
         lastEnvironmentWeather = weather;
-        const phase = nightMode ? 'night' : timeOfDay(now.getHours() + now.getMinutes() / 60);
+        const phase = timeOfDay(now.getHours() + now.getMinutes() / 60);
         const rainy = weather === 'rain';
         const settings = phase === 'morning'
           ? { sky: 0x9fc5dd, fog: 0xa9c7d7, sun: 0xc4dbef, sunPower: 2.2, hemi: 1.55, exposure: 0.96, shadow: 4.5, sunY: 12 }
@@ -629,28 +618,22 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
             ? { sky: 0x80c5e8, fog: 0xa9d2e1, sun: 0xfff3c7, sunPower: 3.8, hemi: 2.4, exposure: 1.08, shadow: 1.2, sunY: 24 }
             : phase === 'evening'
               ? { sky: 0xe9a86f, fog: 0xe9b984, sun: 0xffc26e, sunPower: 3.3, hemi: 1.9, exposure: 1, shadow: 3.8, sunY: 18 }
-              // Night must stay readable on an uncalibrated phone screen.
-              // The moon fill remains cool while the pooled streetlights add
-              // the warm pockets of light along the road.
-              : { sky: 0x10234a, fog: 0x1d3357, sun: 0xaec9ff, sunPower: 1.05, hemi: 1.18, exposure: 1.02, shadow: 1.1, sunY: 9 };
+              : { sky: 0xe9a86f, fog: 0xe9b984, sun: 0xffc26e, sunPower: 3.3, hemi: 1.9, exposure: 1, shadow: 3.8, sunY: 18 };
         skyColor.setHex(rainy ? settings.sky * 0.67 : settings.sky);
         (scene.fog as THREE.Fog).color.setHex(rainy ? settings.fog * 0.6 : settings.fog);
-        (scene.fog as THREE.Fog).near = phase === 'night' ? 28 : rainy ? 36 : 52;
-        (scene.fog as THREE.Fog).far = phase === 'night' ? 110 : rainy ? 118 : 145;
+        (scene.fog as THREE.Fog).near = rainy ? 36 : 52;
+        (scene.fog as THREE.Fog).far = rainy ? 118 : 145;
         sun.color.setHex(settings.sun);
         sun.intensity = settings.sunPower * (rainy ? 0.55 : 1);
         sun.position.y = settings.sunY;
         sun.shadow.radius = settings.shadow;
         hemi.intensity = settings.hemi * (rainy ? 0.68 : 1);
-        hemi.color.setHex(phase === 'night' ? 0x6b8ec7 : settings.sky);
-        sunDisk.visible = phase !== 'night';
+        hemi.color.setHex(settings.sky);
+        sunDisk.visible = true;
         roadMaterial.color.setHex(rainy ? 0x202a30 : 0x343b3e);
         roadMaterial.roughness = rainy ? 0.24 : 0.76;
         roadMaterial.metalness = rainy ? 0.28 : 0.02;
         rain.visible = rainy;
-        for (const [index, light] of streetLights.entries()) {
-          light.intensity = phase === 'night' ? (index % 2 ? 92 : 74) : rainy ? 8 : 0;
-        }
         renderer!.toneMappingExposure = settings.exposure;
       };
       applyEnvironment();
@@ -1110,7 +1093,7 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
       renderer?.dispose();
       if (renderer?.domElement.parentElement === mount) mount.removeChild(renderer.domElement);
     };
-  }, [myPlayerId, quality, nightMode]);
+  }, [myPlayerId, quality]);
 
   return <div className="game-canvas" ref={mountRef} aria-label="Live race view" />;
 }
