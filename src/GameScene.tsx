@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { CITY_ROUTE_LOOP, CITY_ROUTE_ZONES } from './cityLayout';
 import { vehicleTuning } from './vehiclePhysics';
 
 const TRAFFIC_ASSETS = [
@@ -444,6 +445,37 @@ function createSidewalkLife(index: number, side: number) {
   return group;
 }
 
+function createLandmark(name: string): THREE.LOD {
+  const detailed = new THREE.Group();
+  const simple = new THREE.Group();
+  const colors = { stone: 0xd8c9a3, red: 0xb74f3e, glass: 0x6ba4b5, blue: 0x285a78 };
+  if (name === 'VIDHANA SOUDHA') {
+    detailed.add(box(6.8, 2.1, 3.2, colors.stone, 0, 1.05, 0), box(7.8, 0.18, 3.7, colors.stone, 0, 2.2, 0));
+    detailed.add(cylinder(1.25, 0.7, colors.stone, 0, 3.05, 0, 16), cylinder(0.34, 1.4, colors.stone, 0, 3.95, 0, 12));
+    detailed.add(streetSign('VIDHANA SOUDHA • ವಿಧಾನ ಸೌಧ', '#234d56', 4.8));
+    simple.add(box(7, 2.8, 3.2, colors.stone, 0, 1.4, 0));
+  } else if (name === 'SILK BOARD') {
+    detailed.add(box(9, 0.35, 1.2, colors.blue, 0, 4, 0), box(0.35, 3.8, 0.35, colors.blue, -3.8, 2.2, 0), box(0.35, 3.8, 0.35, colors.blue, 3.8, 2.2, 0));
+    detailed.add(streetSign('SILK BOARD • ಸಿಲ್ಕ್ ಬೋರ್ಡ್', '#174c76', 5.5));
+    simple.add(box(9, 2.2, 1.5, colors.blue, 0, 1.1, 0));
+  } else if (name === 'TRINITY CIRCLE') {
+    detailed.add(cylinder(2.3, 0.18, 0xc7a43b, 0, 0.1, 0, 20), cylinder(0.36, 2.5, colors.red, 0, 1.3, 0, 12), box(2.4, 0.32, 0.35, colors.stone, 0, 2.58, 0));
+    detailed.add(streetSign('TRINITY CIRCLE • ಟ್ರಿನಿಟಿ', '#245875', 4.2));
+    simple.add(cylinder(1.8, 0.2, colors.red, 0, 0.1, 0, 12));
+  } else if (name === 'ECOSPACE') {
+    for (const x of [-2.6, 0, 2.6]) detailed.add(box(2.2, 7, 2.3, colors.glass, x, 3.5, 0));
+    detailed.add(streetSign('ORR TECH CORRIDOR • ಹೊರ ವರ್ತುಲ ರಸ್ತೆ', '#1d5263', 6));
+    simple.add(box(8, 6, 2.2, colors.glass, 0, 3, 0));
+  } else {
+    detailed.add(box(7, 2.8, 3, colors.red, 0, 1.4, 0));
+    simple.add(box(7, 2.8, 3, colors.red, 0, 1.4, 0));
+  }
+  const lod = new THREE.LOD();
+  lod.addLevel(detailed, 0);
+  lod.addLevel(simple, 58);
+  return lod;
+}
+
 export function GameScene({ myPlayerId, profiles, positions, obstacles, input, quality, nightMode, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const profilesRef = useRef(profiles);
@@ -663,6 +695,29 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
           roadMarkers.push({ mesh: stripe, baseZ: z });
         }
       }
+
+      const routeLandmarks: Array<{ object: THREE.LOD; baseDistance: number }> = [];
+      for (const zone of CITY_ROUTE_ZONES) {
+        const landmark = createLandmark(zone.landmark);
+        landmark.position.set(zone.id === 'orr' ? 0 : zone.id === 'cbd' ? -7.2 : 7.2, 0, 0);
+        scene.add(landmark);
+        routeLandmarks.push({ object: landmark, baseDistance: zone.start + 34 });
+      }
+      // Namma Metro’s elevated line is one instanced mesh, not hundreds of
+      // separate pillar objects. It runs down the median and loops with the
+      // same route-space convention as the roadside prefabs.
+      const metro = new THREE.Group();
+      const pillarGeometry = new THREE.CylinderGeometry(0.18, 0.22, 4.2, 8);
+      const pillarMaterial = new THREE.MeshLambertMaterial({ color: 0x7d8583 });
+      const pillars = new THREE.InstancedMesh(pillarGeometry, pillarMaterial, 22);
+      const pillarMatrix = new THREE.Matrix4();
+      for (let index = 0; index < 22; index += 1) {
+        pillarMatrix.makeTranslation(0, 2.1, -index * 28);
+        pillars.setMatrixAt(index, pillarMatrix);
+      }
+      const viaduct = box(1.15, 0.45, 21, 0x626e70, 0, 4.35, -10.5);
+      metro.add(pillars, viaduct);
+      scene.add(metro);
       // Sparse crossings and speed-breaker markings make the street feel
       // inhabited while preserving a clear, readable driving line.
       const roadDetails: Array<{ mesh: THREE.Mesh; baseZ: number }> = [];
@@ -962,6 +1017,13 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input, q
         for (const marker of roadMarkers) {
           marker.mesh.position.z = ((marker.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
         }
+        const routeOffset = ((myDistance % CITY_ROUTE_LOOP) + CITY_ROUTE_LOOP) % CITY_ROUTE_LOOP;
+        for (const landmark of routeLandmarks) {
+          const relativeDistance = ((landmark.baseDistance - routeOffset + CITY_ROUTE_LOOP) % CITY_ROUTE_LOOP + CITY_ROUTE_LOOP) % CITY_ROUTE_LOOP;
+          landmark.object.position.z = 18 - relativeDistance;
+          landmark.object.visible = relativeDistance < 150;
+        }
+        metro.position.z = 18 - routeOffset;
         for (const detail of roadDetails) {
           detail.mesh.position.z = ((detail.baseZ + myDistance + 210) % 240 + 240) % 240 - 210;
         }
