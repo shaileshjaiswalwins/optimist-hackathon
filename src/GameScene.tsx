@@ -228,8 +228,8 @@ function racerNameplate(name: string, isBot: boolean) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-  sprite.scale.set(2.8, 0.72, 1);
-  sprite.position.y = 3.35;
+  sprite.scale.set(1.75, 0.45, 1);
+  sprite.position.y = 3.08;
   return sprite;
 }
 
@@ -506,21 +506,25 @@ export function GameScene({ myPlayerId, profiles, positions, obstacles, input }:
         shoulder.rotation.x = -Math.PI / 2;
         shoulder.position.set(side * 7.6, -0.008, -95);
         scene.add(shoulder);
-        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 260), curbMaterial);
-        curb.position.set(side * 6.6, 0.08, -95);
+        const curb = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 260), curbMaterial);
+        curb.rotation.x = -Math.PI / 2;
+        curb.position.set(side * 6.6, 0.008, -95);
         scene.add(curb);
-        // A shallow solid slab avoids the coplanar-plane shimmer seen on the
-        // previous pavement and gives pedestrians a visibly wider walkway.
-        const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.16, 260), sidewalkMaterial);
-        sidewalk.position.set(side * 9.2, 0.06, -95);
+        // Keep the pavement flat. The previous raised slab exposed a long,
+        // strongly lit side face that looked like a glowing/glitching stripe.
+        const sidewalk = new THREE.Mesh(new THREE.PlaneGeometry(4.7, 260), sidewalkMaterial);
+        sidewalk.rotation.x = -Math.PI / 2;
+        sidewalk.position.set(side * 9.2, 0.006, -95);
         scene.add(sidewalk);
       }
 
       const vergeMaterial = new THREE.MeshLambertMaterial({ color: 0x527b3e });
       for (const side of [-1, 1]) {
-        const verge = new THREE.Mesh(new THREE.PlaneGeometry(35, 260), vergeMaterial);
+        // Start grass after the pavement instead of underneath it, eliminating
+        // overlapping ground surfaces at the sidewalk boundary.
+        const verge = new THREE.Mesh(new THREE.PlaneGeometry(29.5, 260), vergeMaterial);
         verge.rotation.x = -Math.PI / 2;
-        verge.position.set(side * 23.8, -0.02, -95);
+        verge.position.set(side * 26.45, -0.02, -95);
         scene.add(verge);
       }
       const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xf3e8bd });
