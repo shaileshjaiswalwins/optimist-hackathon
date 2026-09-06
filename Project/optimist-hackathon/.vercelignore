@@ -1,0 +1,8 @@
+.env*
+.vercel
+node_modules
+dist
+*.log
+test-results
+spacetimedb/dist
+spacetimedb/node_modules

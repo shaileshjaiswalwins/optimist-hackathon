@@ -1,0 +1,17 @@
+{
+  "name": "project-graveyard-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 8080 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --port 8080 --strictPort"
+  },
+  "dependencies": {
+    "spacetimedb": "^2.10.0"
+  },
+  "devDependencies": {
+    "vercel": "^59.11.7",
+    "vite": "^5.4.0"
+  }
+}

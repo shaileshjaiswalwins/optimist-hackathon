@@ -1,0 +1,8 @@
+{
+  "dev": {
+    "run": "npm run dev"
+  },
+  "module-path": "./spacetimedb",
+  "database": "jaldigharpahuncho-2d",
+  "server": "maincloud"
+}

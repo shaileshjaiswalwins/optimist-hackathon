@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Graveyard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Sora:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #12201a;
+    --muted: #4a5b53;
+    --line: rgba(18, 32, 26, 0.14);
+    --paper: #f2f6f3;
+    --mist: #e7eee8;
+    --moss: #246b4a;
+    --moss-deep: #184c34;
+    --stone: #6f7d74;
+    --soil: #d9e2da;
+    --warm: #b84a30;
+    --surface: rgba(255, 255, 255, 0.82);
+    --font-display: "Fraunces", Georgia, serif;
+    --font-body: "Sora", sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    min-height: 100vh;
+    color: var(--ink);
+    font-family: var(--font-body);
+    background:
+      radial-gradient(1000px 520px at 80% -10%, rgba(47, 107, 79, 0.14), transparent 55%),
+      radial-gradient(900px 480px at 10% 0%, rgba(138, 150, 142, 0.22), transparent 50%),
+      linear-gradient(180deg, #eef3ef 0%, var(--paper) 38%, #e4ebe5 100%);
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  button, input, textarea { font: inherit; }
+
+  /* —— Nav —— */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px clamp(20px, 4vw, 48px);
+    backdrop-filter: blur(14px);
+    background: rgba(238, 243, 239, 0.78);
+    border-bottom: 1px solid transparent;
+    transition: border-color .3s ease, background .3s ease;
+  }
+  .nav.scrolled { border-bottom-color: var(--line); }
+  .nav-brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -0.02em;
+  }
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .nav-actions a { color: var(--muted); }
+  .nav-actions a:hover { color: var(--ink); }
+  .nav-cta {
+    background: var(--moss) !important;
+    color: #f4faf6 !important;
+    border-radius: 9px;
+    padding: 9px 14px;
+  }
+  .nav-cta:hover { background: var(--moss-deep) !important; }
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--moss-deep);
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--moss);
+    box-shadow: 0 0 0 0 rgba(47, 107, 79, 0.45);
+    animation: pulse 2.2s ease infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(47, 107, 79, 0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(47, 107, 79, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(47, 107, 79, 0); }
+  }
+
+  /* —— Hero —— */
+  .hero {
+    position: relative;
+    min-height: min(92vh, 860px);
+    display: grid;
+    align-items: end;
+    padding: clamp(40px, 8vh, 96px) clamp(20px, 4vw, 48px) clamp(48px, 8vh, 88px);
+    isolation: isolate;
+  }
+  .hero-sky {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background:
+      linear-gradient(180deg, rgba(238, 243, 239, 0.15) 0%, rgba(243, 246, 242, 0.92) 72%, var(--paper) 100%),
+      radial-gradient(ellipse 80% 55% at 50% 100%, rgba(47, 107, 79, 0.18), transparent 70%),
+      linear-gradient(185deg, #d5e0d8 0%, #eef3ef 45%, #f3f6f2 100%);
+    overflow: hidden;
+  }
+  .mist {
+    position: absolute;
+    inset: auto 0 18% 0;
+    height: 42%;
+    background:
+      radial-gradient(ellipse 50% 80% at 20% 60%, rgba(255,255,255,0.55), transparent 70%),
+      radial-gradient(ellipse 45% 70% at 70% 50%, rgba(255,255,255,0.4), transparent 70%),
+      radial-gradient(ellipse 60% 90% at 50% 80%, rgba(228, 235, 229, 0.85), transparent 75%);
+    filter: blur(18px);
+    animation: drift 18s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  .mist.late {
+    inset: auto -10% 8% -10%;
+    height: 28%;
+    opacity: 0.7;
+    animation-duration: 24s;
+    animation-direction: alternate-reverse;
+  }
+  @keyframes drift {
+    from { transform: translateX(-3%) translateY(0); }
+    to { transform: translateX(4%) translateY(-8px); }
+  }
+  .hero-ground {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 38%;
+    z-index: -1;
+    background:
+      linear-gradient(180deg, transparent, rgba(26, 36, 32, 0.06) 40%, rgba(26, 36, 32, 0.1)),
+      repeating-linear-gradient(
+        90deg,
+        transparent 0 48px,
+        rgba(26, 36, 32, 0.03) 48px 49px
+      );
+    mask-image: linear-gradient(180deg, transparent, #000 35%);
+  }
+  .silhouette {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(1200px, 130%);
+    height: 48%;
+    z-index: -1;
+    opacity: 0.78;
+    background:
+      radial-gradient(ellipse 12% 55% at 16% 100%, #2d3c35 0 38%, transparent 39%),
+      radial-gradient(ellipse 9% 42% at 27% 100%, #24332c 0 40%, transparent 41%),
+      radial-gradient(ellipse 15% 72% at 48% 100%, #2a3931 0 36%, transparent 37%),
+      radial-gradient(ellipse 10% 48% at 63% 100%, #223129 0 40%, transparent 41%),
+      radial-gradient(ellipse 13% 58% at 79% 100%, #2c3b33 0 38%, transparent 39%),
+      radial-gradient(ellipse 8% 36% at 90% 100%, #1f2d26 0 42%, transparent 43%);
+    animation: rise-in 1.2s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .hero-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 720px;
+    color: var(--ink);
+    animation: rise-in 0.9s cubic-bezier(.2,.7,.2,1) both;
+  }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(28px); }
+    to { opacity: 1; transform: none; }
+  }
+  .brand {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(3rem, 9vw, 5.6rem);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    margin-bottom: 22px;
+    color: var(--ink);
+  }
+  .headline {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: clamp(1.35rem, 3.2vw, 2rem);
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    max-width: 18ch;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+  .lede {
+    color: var(--muted);
+    font-size: clamp(1rem, 1.6vw, 1.125rem);
+    line-height: 1.55;
+    max-width: 36ch;
+    margin-bottom: 28px;
+  }
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 22px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: transform .18s ease, background .18s ease, color .18s ease, border-color .18s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn-primary {
+    background: var(--moss);
+    color: #f4faf6;
+  }
+  .btn-primary:hover { background: var(--moss-deep); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .btn-ghost:hover { border-color: rgba(26, 36, 32, 0.28); background: rgba(255,255,255,0.45); }
+
+  /* —— Sections —— */
+  .section {
+    padding: clamp(56px, 10vh, 104px) clamp(20px, 4vw, 48px);
+  }
+  .section-inner { max-width: 1080px; margin: 0 auto; }
+  .section-kicker {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--moss);
+    margin-bottom: 10px;
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 10px;
+  }
+  .section-copy {
+    color: var(--muted);
+    max-width: 42ch;
+    line-height: 1.55;
+    margin-bottom: 32px;
+  }
+
+  /* —— Bury form (interaction surface) —— */
+  .bury-panel {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: clamp(28px, 5vw, 56px);
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .bury-panel { grid-template-columns: 1fr; }
+  }
+  .bury-form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: clamp(20px, 3vw, 28px);
+    backdrop-filter: blur(10px);
+    display: grid;
+    gap: 14px;
+  }
+  .field { display: grid; gap: 7px; }
+  .field label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 560px) {
+    .field-row { grid-template-columns: 1fr; }
+  }
+  input, textarea {
+    width: 100%;
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 12px 13px;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus, textarea:focus {
+    border-color: rgba(47, 107, 79, 0.55);
+    box-shadow: 0 0 0 3px rgba(47, 107, 79, 0.12);
+  }
+  textarea { resize: vertical; min-height: 88px; }
+  .bury-form .btn-primary { width: 100%; margin-top: 4px; }
+  .bury-aside {
+    padding-top: 8px;
+  }
+  .aside-list {
+    list-style: none;
+    display: grid;
+    gap: 18px;
+  }
+  .aside-list li {
+    display: grid;
+    gap: 4px;
+    padding-left: 14px;
+    border-left: 2px solid rgba(47, 107, 79, 0.35);
+  }
+  .aside-list strong {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .aside-list span {
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  /* —— Wall —— */
+  .wall-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .wall-head .section-copy { margin-bottom: 0; }
+  .count-line {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    color: var(--muted);
+  }
+  .count-line strong {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  #wall {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 18px;
+    align-items: stretch;
+  }
+  .grave {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.88), rgba(241, 245, 242, 0.92));
+    border: 1px solid var(--line);
+    border-radius: 16px 16px 10px 10px;
+    padding: 22px 18px 20px;
+    text-align: center;
+    animation: rise-in .55s cubic-bezier(.2,.7,.2,1) both;
+  }
+  .grave::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -10px;
+    width: 54%;
+    height: 16px;
+    transform: translateX(-50%);
+    background: inherit;
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 999px 999px 0 0;
+  }
+  .rip {
+    letter-spacing: 0.28em;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--stone);
+    margin-bottom: 10px;
+  }
+  .grave .name {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 10px;
+  }
+  .cause {
+    color: var(--warm);
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .epitaph {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+  .by {
+    margin-top: 14px;
+    font-size: 0.78rem;
+    color: var(--stone);
+  }
+  .wall-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--muted);
+    padding: 48px 16px;
+    border: 1px dashed var(--line);
+    border-radius: 16px;
+  }
+
+  /* —— Footer —— */
+  .site-footer {
+    border-top: 1px solid var(--line);
+    padding: 28px clamp(20px, 4vw, 48px) 40px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .site-footer a:hover { color: var(--ink); }
+
+  /* —— Big-screen mode —— */
+  body.screen .nav,
+  body.screen .hero,
+  body.screen #bury,
+  body.screen .site-footer { display: none; }
+  body.screen .section.graveyard {
+    padding-top: clamp(32px, 6vh, 64px);
+    min-height: 100vh;
+  }
+  body.screen .section-title {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+  }
+</style>
+</head>
+<body>
+  <nav class="nav" id="nav">
+    <a class="nav-brand" href="#">Project Graveyard</a>
+    <div class="nav-actions">
+      <span class="live-pill"><span class="live-dot" aria-hidden="true"></span><span id="status">Connecting…</span></span>
+      <a href="#wall-section">Wall</a>
+      <a href="#screen" id="screen-link">Big screen</a>
+      <a class="nav-cta" href="#bury">Bury a project</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="hero-sky" aria-hidden="true">
+      <div class="mist"></div>
+      <div class="mist late"></div>
+      <div class="silhouette"></div>
+      <div class="hero-ground"></div>
+    </div>
+    <div class="hero-copy">
+      <h1 class="brand">Project Graveyard</h1>
+      <p class="headline">A living memorial for the work you walked away from.</p>
+      <p class="lede">Bury a side project once. Watch it appear on every screen in the room, instantly.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#bury">Bury a project</a>
+        <a class="btn btn-ghost" href="#wall-section">See the wall</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" id="bury">
+    <div class="section-inner bury-panel">
+      <div>
+        <div class="section-kicker">Product</div>
+        <h2 class="section-title">Lay it to rest in under 15 seconds.</h2>
+        <p class="section-copy">No accounts. No backlog. Just a name, a cause, and a few last words — shared live with everyone watching.</p>
+        <form class="bury-form" id="bury-form">
+          <div class="field">
+            <label for="name">Project name</label>
+            <input id="name" maxlength="60" placeholder="CryptoPetSitter" autocomplete="off" required>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="cause">Cause of death</label>
+              <input id="cause" maxlength="80" placeholder="No users" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="by">Buried by</label>
+              <input id="by" maxlength="40" placeholder="Your name" autocomplete="nickname">
+            </div>
+          </div>
+          <div class="field">
+            <label for="epitaph">Epitaph</label>
+            <textarea id="epitaph" maxlength="160" placeholder="It had potential."></textarea>
+          </div>
+          <button class="btn btn-primary" id="bury-btn" type="submit">Bury it</button>
+        </form>
+      </div>
+      <aside class="bury-aside">
+        <ul class="aside-list">
+          <li>
+            <strong>Live by default</strong>
+            <span>Every burial syncs to every open client through SpacetimeDB — no refresh, no chat thread.</span>
+          </li>
+          <li>
+            <strong>Built for the room</strong>
+            <span>Flip to big-screen mode and turn the idle display into a shared wall the whole team fills.</span>
+          </li>
+          <li>
+            <strong>Honest onboarding</strong>
+            <span>Three fields. One button. Strangers can contribute before anyone explains the product.</span>
+          </li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section graveyard" id="wall-section">
+    <div class="section-inner">
+      <div class="wall-head">
+        <div>
+          <div class="section-kicker">Live wall</div>
+          <h2 class="section-title">Where abandoned ideas gather.</h2>
+          <p class="section-copy">Newest first. Open another tab to prove the real-time loop.</p>
+        </div>
+        <p class="count-line"><strong id="count">0</strong> projects laid to rest</p>
+      </div>
+      <div id="wall">
+        <div class="wall-empty" id="wall-empty">The ground is still empty. Be the first to bury something.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>Project Graveyard — shared state, shared grief.</span>
+    <a href="#screen" id="screen-link-footer">Open big-screen mode</a>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
